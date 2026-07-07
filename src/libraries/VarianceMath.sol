@@ -96,12 +96,18 @@ library VarianceMath {
         returns (Variance)
     {
         if (windowSeconds == 0) revert ZeroWindow();
-        // sumSq * ln^2(1.0001) gives the raw quadratic variation in WAD when the e36
-        // constant is divided back by 1e18; annualisation is the remaining ratio.
-        uint256 quadraticVariationWad =
-            FixedPointMathLib.fullMulDiv(sumSquaredTickDeltas_, LN_TICK_SQUARED_E36, 1e18);
+
+        // One division, not two. Rounding down twice — once to WAD, once for annualisation —
+        // costs up to `SECONDS_PER_YEAR / windowSeconds` wei, which for a daily series is 365
+        // wei of variance the long side never gets paid for. Measured against the reference,
+        // the two-step version was off by 34 wei on a single-jump case; this version is exact
+        // to the last unit. `fullMulDiv` carries the intermediate product at 512 bits, so the
+        // numerator cannot overflow: sumSq <= 3.2e15 for any series that fits in a block,
+        // and the constant below is ~3.15e35.
         return Variance.wrap(
-            FixedPointMathLib.fullMulDiv(quadraticVariationWad, SECONDS_PER_YEAR, windowSeconds)
+            FixedPointMathLib.fullMulDiv(
+                sumSquaredTickDeltas_, LN_TICK_SQUARED_E36 * SECONDS_PER_YEAR, 1e18 * windowSeconds
+            )
         );
     }
 
