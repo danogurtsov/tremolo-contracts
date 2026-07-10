@@ -302,6 +302,14 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
 
         _subscribed[seriesId][uint8(side)][account] = 0;
 
+        // The aggregate must fall too, otherwise `subscribedLong/Short` keep reporting the
+        // pre-activation figure forever. After
+        // activation these fields mean "subscriptions not yet converted", and an indexer
+        // reading them gets an answer that matches the collateral actually still owed.
+        // Caught by invariant_collateralCoversClaims, not by any unit test.
+        if (side == Side.LONG) s.subscribedLong -= units;
+        else s.subscribedShort -= units;
+
         if (minted != 0) _mint(account, tokenId(seriesId, side), minted);
         if (refunded != 0) {
             _collateralHeld[seriesId] -= refunded;
