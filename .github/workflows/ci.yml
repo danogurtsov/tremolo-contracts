@@ -1,0 +1,54 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  build-and-test:
+    name: build, test, invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Show versions
+        run: forge --version
+
+      - name: Build
+        run: forge build --sizes
+
+      - name: Check formatting
+        run: forge fmt --check
+
+      # The differential suite is only meaningful if the fixtures match the reference that
+      # generated them. Regenerating here means a silent edit to either side fails CI.
+      - name: Regenerate reference fixtures
+        run: |
+          python3 reference/variance_reference.py
+          git diff --exit-code test/fixtures/
+
+      - name: Tests, fuzz and invariants
+        run: forge test -vv
+
+  static-analysis:
+    name: slither
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: crytic/slither-action@v0.4.0
+        with:
+          fail-on: high
