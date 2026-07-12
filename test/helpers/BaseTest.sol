@@ -120,8 +120,19 @@ abstract contract BaseTest is Test {
         vm.warp(s.expiry);
     }
 
+    /// @dev Positions are WAD-denominated, so `units` is scaled by 1e18 throughout the tests.
     function totalDeposited(uint256 id, uint256 units) internal view returns (uint256) {
-        return market.collateralPerUnit(id, IVarianceMarket.Side.LONG) * units
-            + market.collateralPerUnit(id, IVarianceMarket.Side.SHORT) * units;
+        return _depositFor(units, market.collateralPerUnit(id, IVarianceMarket.Side.LONG))
+            + _depositFor(units, market.collateralPerUnit(id, IVarianceMarket.Side.SHORT));
+    }
+
+    /// @dev Mirrors the contract's round-up on deposits.
+    function _depositFor(uint256 units, uint256 perUnit) internal pure returns (uint256) {
+        uint256 p = units * perUnit;
+        return p == 0 ? 0 : (p - 1) / 1e18 + 1;
+    }
+
+    function _valueOf(uint256 units, uint256 perUnit) internal pure returns (uint256) {
+        return units * perUnit / 1e18;
     }
 }

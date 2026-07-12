@@ -29,6 +29,9 @@ contract MarketHandler is CommonBase, StdCheats, StdUtils {
     address[] public actors;
     address internal currentActor;
 
+    /// @dev Matches VarianceMarket.MIN_SUBSCRIPTION.
+    uint256 internal constant MIN_UNITS = 0.0001e18;
+
     uint256 public totalIn;
     uint256 public totalOut;
 
@@ -76,9 +79,9 @@ contract MarketHandler is CommonBase, StdCheats, StdUtils {
         if (block.timestamp >= s.startTime) return;
 
         IVarianceMarket.Side side = _side(sideSeed);
-        units = bound(units, 1, 50);
+        units = bound(units, MIN_UNITS, 50e18);
 
-        uint256 cost = market.collateralPerUnit(seriesId, side) * units;
+        uint256 cost = _depositFor(units, market.collateralPerUnit(seriesId, side));
         if (usdc.balanceOf(currentActor) < cost) return;
 
         market.subscribe(seriesId, side, units);
@@ -97,11 +100,11 @@ contract MarketHandler is CommonBase, StdCheats, StdUtils {
 
         IVarianceMarket.Side side = _side(sideSeed);
         uint256 held = market.subscribedUnits(seriesId, side, currentActor);
-        if (held == 0) return;
+        if (held < MIN_UNITS) return;
 
-        units = bound(units, 1, held);
+        units = bound(units, MIN_UNITS, held);
         market.unsubscribe(seriesId, side, units);
-        totalOut += market.collateralPerUnit(seriesId, side) * units;
+        totalOut += units * market.collateralPerUnit(seriesId, side) / 1e18;
     }
 
     function activate() external countCall("activate") {
@@ -201,6 +204,11 @@ contract MarketHandler is CommonBase, StdCheats, StdUtils {
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
+
+    function _depositFor(uint256 units, uint256 perUnit) internal pure returns (uint256) {
+        uint256 p = units * perUnit;
+        return p == 0 ? 0 : (p - 1) / 1e18 + 1;
+    }
 
     function _side(uint256 seed) internal pure returns (IVarianceMarket.Side) {
         return seed % 2 == 0 ? IVarianceMarket.Side.LONG : IVarianceMarket.Side.SHORT;

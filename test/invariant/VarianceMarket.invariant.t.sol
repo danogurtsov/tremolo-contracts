@@ -123,27 +123,40 @@ contract VarianceMarketInvariantTest is Test {
             uint256 subShort = market.subscribedUnits(seriesId, IVarianceMarket.Side.SHORT, actor);
 
             if (s.state == IVarianceMarket.State.SUBSCRIBING || s.state == IVarianceMarket.State.CANCELLED) {
-                claims += subLong * perLong + subShort * perShort;
+                claims += _depositFor(subLong, perLong) + _depositFor(subShort, perShort);
                 continue;
             }
 
-            // Refund owed on the unmatched remainder of a subscription.
-            claims += (subLong - subLong * s.fillLongWad / 1e18) * perLong;
-            claims += (subShort - subShort * s.fillShortWad / 1e18) * perShort;
+            // Refund owed on the unmatched remainder of a subscription, computed the way the
+            // contract computes it: a share of the deposit, not a function of minted units.
+            if (s.longAtActivation != 0) {
+                uint256 paid = _depositFor(subLong, perLong);
+                claims += paid * (s.longAtActivation - s.matchedAtActivation) / s.longAtActivation;
+            }
+            if (s.shortAtActivation != 0) {
+                uint256 paid = _depositFor(subShort, perShort);
+                claims += paid * (s.shortAtActivation - s.matchedAtActivation) / s.shortAtActivation;
+            }
 
             uint256 longBal = market.balanceOf(actor, longId);
             uint256 shortBal = market.balanceOf(actor, shortId);
 
             if (s.state == IVarianceMarket.State.ACTIVE) {
                 uint256 nettable = longBal < shortBal ? longBal : shortBal;
-                claims += nettable * market.totalCollateralPerUnit(seriesId);
+                claims += nettable * market.totalCollateralPerUnit(seriesId) / 1e18;
             } else {
-                claims += longBal * market.payoutPerUnit(seriesId, IVarianceMarket.Side.LONG);
-                claims += shortBal * market.payoutPerUnit(seriesId, IVarianceMarket.Side.SHORT);
+                claims += longBal * market.payoutPerUnit(seriesId, IVarianceMarket.Side.LONG) / 1e18;
+                claims += shortBal * market.payoutPerUnit(seriesId, IVarianceMarket.Side.SHORT) / 1e18;
             }
         }
 
         assertGe(market.collateralHeld(seriesId), claims, "cannot cover all claims");
+    }
+
+    /// @dev Mirrors the contract's deposit rounding, so the check does not drift from it.
+    function _depositFor(uint256 units, uint256 perUnit) internal pure returns (uint256) {
+        uint256 p = units * perUnit;
+        return p == 0 ? 0 : (p - 1) / 1e18 + 1;
     }
 
     /// @notice Position supply never exceeds what was matched.

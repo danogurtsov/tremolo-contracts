@@ -47,12 +47,19 @@ pot          = longDeposit + shortDeposit = notional * ceiling
 `longPayout + shortPayout = pot` for every possible `RV`. This identity is what removes
 liquidation from the design and is asserted continuously by the invariant suite.
 
-**Rounding.** Deposits round up, payouts round down; `shortDeposit` is defined as the remainder
-of the pot so the two deposits sum exactly. Position minting rounds down. Every rounding
-direction favours the pool, so dust can only make a series more solvent.
+**Rounding.** Deposits round **up**; withdrawals, payouts and minting round **down**.
+`shortDeposit` is defined as the remainder of the pot so the two deposits sum exactly.
 
-**Units.** `notionalPerUnit` is collateral tokens per 1.0 of variance. Positions are counted in
-whole units and have zero decimals. Worked example, the one used throughout the tests:
+Symmetric rounding would let a subscription be withdrawn in slices
+for more than it cost, since `ceil(a+b)` can be one wei below `ceil(a) + ceil(b)` — and that wei
+would come from another user's collateral. A full-size round trip costs at most one wei, and the
+wei stays in the series.
+
+**Units.** `notionalPerUnit` is collateral tokens per 1.0 of variance, per whole unit. Positions
+are WAD-denominated: one unit is `1e18`, with a minimum subscription of `0.0001e18`. Whole units
+were tried first and rejected: pro-rata matching cannot be exact over indivisible units, and the
+residue shows up as a solvency hole.
+Worked example, the one used throughout the tests:
 
 ```
 K = 0.04 (20% annual vol), cap = 2.5, notionalPerUnit = 1000 USDC
@@ -88,6 +95,11 @@ RV >= 0.10           ->  long receives 100, short receives 0
 **Matching is pro rata.** `matchedUnits = min(subscribedLong, subscribedShort)`; each side is
 filled at `matched / subscribed`. The unmatched remainder is refunded when positions are minted.
 A queue would require iterating over subscribers, which does not scale and is not needed.
+
+Distribution reads the **activation snapshots** (`matchedAtActivation`, `longAtActivation`,
+`shortAtActivation`), never the live `matchedUnits`, which falls as positions are netted. The
+refund is computed as a share of the deposit rather than from the minted amount, so the matched
+share of every deposit stays in the pool even when the position it backs rounds down.
 
 **Claims never expire.** There is no deadline on `redeem` and no sweep of unclaimed funds.
 

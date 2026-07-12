@@ -82,8 +82,11 @@ make ci                         # what CI executes
 make reference                  # regenerate differential fixtures
 ```
 
-52 tests: unit, fuzz, differential against the Python reference, and a handler-based invariant
+53 tests: unit, fuzz, differential against the Python reference, and a handler-based invariant
 suite running with `fail_on_revert = true`.
+
+Two solvency holes were found by invariants at 512 runs and depth 128, a depth the fast
+local profile never reaches; neither was reachable from any scenario written by hand.
 
 ## The invariants
 
