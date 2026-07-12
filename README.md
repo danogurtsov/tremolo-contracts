@@ -84,8 +84,9 @@ make ci                         # what CI executes
 make reference                  # regenerate differential fixtures
 ```
 
-53 tests: unit, fuzz, differential against the Python reference, and a handler-based invariant
-suite running with `fail_on_revert = true`.
+59 tests: unit, fuzz, differential against the Python reference, and two handler-based invariant
+suites running with `fail_on_revert = true` — one over a single series, one over several series
+sharing a contract, two collateral tokens and two price sources.
 
 The suite has already earned its keep. Two solvency holes were found by invariants at 512 runs
 and depth 128 — a depth the fast local profile never reaches — and neither was reachable from
@@ -96,13 +97,17 @@ any scenario written by hand. Both are documented in
 
 Stated in English first, because they are the safety argument:
 
-1. The contract's token balance equals its own ledger.
-2. Nothing leaves that did not first enter — over the entire life of a series.
+1. Per collateral token, the sum of every series' ledger equals the contract's balance.
+2. Nothing leaves that did not first enter — over the entire life of a series, per token.
 3. Every claim every holder could make right now is covered by collateral held.
-4. Position supply never exceeds matched units.
-5. Long and short payouts sum to exactly the collateral behind a matched unit.
+4. **Every series covers its own claims out of its own collateral.**
+5. Position supply never exceeds matched units.
+6. Long and short payouts sum to exactly the collateral behind a matched unit.
+7. Position token ids of different series never collide.
 
-Property 5 is the design in one line, and the reason property 3 can hold without liquidations.
+Property 6 is the design in one line, and the reason property 3 can hold without liquidations.
+Property 4 is what a singleton has to earn: a contract-wide balance check nets a leak between
+two series out to zero and sees nothing, so isolation is stated per series or not at all.
 
 ## Known limitations of the measurement
 

@@ -143,7 +143,17 @@ manipulation, works against history depth. Extending a buffer is permissionless.
 The magnitude of the bias as a function of pool activity is not yet measured. Until it is,
 `minCompletenessBps` is set conservatively rather than derived.
 
-## 7. Trust boundary
+## 7. Isolation between series
+
+One contract holds every series, so isolation is a property to prove rather than a consequence
+of the layout. A series may only ever pay out its own collateral: `collateralHeld[id]` covers
+every claim against series `id` on its own, and per collateral token the sum over series equals
+the contract's balance.
+
+Stated per series deliberately. A contract-wide check nets a leak between two series out to zero
+and sees nothing, which is exactly the failure a singleton invites.
+
+## 8. Trust boundary
 
 The guardian may pause creation of **new** series. It cannot pause, alter, or delay `settle`,
 `redeem`, `net`, or `unsubscribe` on an existing series — there is no code path. Anyone already

@@ -28,8 +28,9 @@ max_test_rejects = 1_000_000
 # and the suite silently checks nothing (pattern: morpho-blue)
 # ------------------------------------------------------------------
 [profile.default.invariant]
-runs = 256
-depth = 64
+runs = 192
+depth = 128   # a full series lifecycle spans hours of simulated time; at depth 64 most runs
+              # never reached settlement and the suite was green without proving anything
 fail_on_revert = true
 shrink_run_limit = 5_000
 
