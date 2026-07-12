@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {ERC6909} from "solady/tokens/ERC6909.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 import {IPriceObserver} from "./interfaces/IPriceObserver.sol";
 import {IVarianceMarket} from "./interfaces/IVarianceMarket.sol";
@@ -59,6 +60,11 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     uint32 internal constant MAX_WINDOW = 365 days;
     uint256 internal constant MAX_STRIKE = 100e18; // sigma = 1000% annualised
     uint16 internal constant MIN_SAMPLES = 2;
+
+    /// @dev Positions are denominated in WAD, so a "unit" is 1e18. Fractional units are not a
+    ///      convenience: pro-rata matching cannot be exact over indivisible units, and the gap
+    ///      lands on solvency rather than on rounding. See the note on `mintPositions`.
+    uint256 internal constant MIN_SUBSCRIPTION = 0.0001e18;
 
     /// @notice Series registry. Ids are sequential from 1; 0 is never a valid series.
     mapping(uint256 seriesId => Series) internal _series;
@@ -194,8 +200,9 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
             subscribedLong: 0,
             subscribedShort: 0,
             matchedUnits: 0,
-            fillLongWad: 0,
-            fillShortWad: 0,
+            matchedAtActivation: 0,
+            longAtActivation: 0,
+            shortAtActivation: 0,
             realizedVariance: Variance.wrap(0)
         });
 
@@ -211,9 +218,9 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         Series storage s = _series[seriesId];
         if (s.state != State.SUBSCRIBING) revert WrongState(s.state);
         if (block.timestamp >= s.startTime) revert SubscriptionClosed();
-        if (units == 0) revert ZeroUnits();
+        if (units < MIN_SUBSCRIPTION) revert ZeroUnits();
 
-        uint256 amount = collateralPerUnit(seriesId, side) * units;
+        uint256 amount = _depositFor(units, collateralPerUnit(seriesId, side));
 
         _subscribed[seriesId][uint8(side)][msg.sender] += units;
         if (side == Side.LONG) s.subscribedLong += units;
@@ -233,12 +240,16 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         if (s.state == State.SUBSCRIBING && block.timestamp >= s.startTime) {
             revert SubscriptionClosed();
         }
-        if (units == 0) revert ZeroUnits();
+        if (units < MIN_SUBSCRIPTION) revert ZeroUnits();
 
         uint256 held = _subscribed[seriesId][uint8(side)][msg.sender];
         if (units > held) revert InsufficientSubscription(held, units);
 
-        uint256 amount = collateralPerUnit(seriesId, side) * units;
+        // Rounded DOWN, while `subscribe` rounds up. Symmetric rounding would let a
+        // subscription be withdrawn in several parts for more than it cost: ceil(a+b) can be
+        // one wei less than ceil(a) + ceil(b), and that wei comes out of somebody else's
+        // collateral. A full-size round trip is still exactly neutral.
+        uint256 amount = FixedPointMathLib.fullMulDiv(units, collateralPerUnit(seriesId, side), WAD);
 
         _subscribed[seriesId][uint8(side)][msg.sender] = held - units;
         if (side == Side.LONG) s.subscribedLong -= units;
@@ -271,11 +282,16 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         }
 
         s.matchedUnits = matched;
-        s.fillLongWad = uint128(matched * WAD / long);
-        s.fillShortWad = uint128(matched * WAD / short);
+        s.matchedAtActivation = matched;
+        // Snapshots, not a pre-divided fill factor. A factor floored to WAD loses a whole
+        // unit's worth of matching when it is applied to a large subscription, and the loss
+        // shows up as a side that keeps its position while its counterparty is refunded in
+        // full. Keeping numerator and denominator makes the split exact.
+        s.longAtActivation = long;
+        s.shortAtActivation = short;
         s.state = State.ACTIVE;
 
-        emit SeriesActivated(seriesId, matched, s.fillLongWad, s.fillShortWad);
+        emit SeriesActivated(seriesId, matched, long, short);
     }
 
     /// @inheritdoc IVarianceMarket
@@ -298,11 +314,22 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         uint256 units = _subscribed[seriesId][uint8(side)][account];
         if (units == 0) revert NothingToMint();
 
-        uint256 fill = side == Side.LONG ? s.fillLongWad : s.fillShortWad;
-        minted = units * fill / WAD;
+        uint256 total = side == Side.LONG ? s.longAtActivation : s.shortAtActivation;
 
-        uint256 perUnit = collateralPerUnit(seriesId, side);
-        refunded = (units - minted) * perUnit;
+        // Minted rounds down; the refund is taken as a share of the DEPOSIT rather than
+        // computed from the minted amount. That ordering matters: it keeps the matched share
+        // of every deposit inside the pool even when the position it backs rounds down, so
+        // the collateral behind matched units can never be refunded away.
+        // Against the ACTIVATION snapshot, not the live counter. `matchedUnits` falls as
+        // positions are netted, and reading it here would hand a later subscriber a larger
+        // refund than their fill entitles them to — collateral that is still backing someone
+        // else's position. Caught by invariant_collateralCoversClaims at 512 runs, depth 128,
+        // in a sequence where a netting happened between two mints.
+        uint256 matched = s.matchedAtActivation;
+        minted = FixedPointMathLib.fullMulDiv(units, matched, total);
+
+        uint256 paid = _depositFor(units, collateralPerUnit(seriesId, side));
+        refunded = FixedPointMathLib.fullMulDiv(paid, total - matched, total);
 
         _subscribed[seriesId][uint8(side)][account] = 0;
 
@@ -347,7 +374,7 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
             revert InsufficientPosition();
         }
 
-        released = totalCollateralPerUnit(seriesId) * units;
+        released = FixedPointMathLib.fullMulDiv(units, totalCollateralPerUnit(seriesId), WAD);
 
         _burn(msg.sender, longId, units);
         _burn(msg.sender, shortId, units);
@@ -427,7 +454,7 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         uint256 id = tokenId(seriesId, side);
         if (balanceOf(msg.sender, id) < units) revert InsufficientPosition();
 
-        amount = payoutPerUnit(seriesId, side) * units;
+        amount = FixedPointMathLib.fullMulDiv(units, payoutPerUnit(seriesId, side), WAD);
 
         _burn(msg.sender, id, units);
         _collateralHeld[seriesId] -= amount;
@@ -466,11 +493,17 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     }
 
     function decimals(uint256) public pure override returns (uint8) {
-        return 0; // positions are counted in whole units, never fractional
+        return 18; // positions are WAD-denominated; see MIN_SUBSCRIPTION
     }
 
     function tokenURI(uint256) public pure override returns (string memory) {
         return "";
+    }
+
+    /// @dev Collateral owed for `units` at `perUnit`, rounded UP. Every rounding direction in
+    ///      this contract favours the pool; deposits are where that starts.
+    function _depositFor(uint256 units, uint256 perUnit) internal pure returns (uint256) {
+        return FixedPointMathLib.fullMulDivUp(units, perUnit, WAD);
     }
 
     /// @notice Outstanding units of a position token.

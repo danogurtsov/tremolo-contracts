@@ -41,7 +41,7 @@ interface IVarianceMarket {
     ///        series that is mostly interpolation.
     /// @param capMultiple WAD-scaled cap on the payout, as a multiple of the strike.
     /// @param strike Strike variance, fixed at creation.
-    /// @param notionalPerUnit Collateral tokens per 1.0 of variance, per unit.
+    /// @param notionalPerUnit Collateral tokens per 1.0 of variance, per whole unit (1e18).
     struct SeriesParams {
         address observer;
         address source;
@@ -73,8 +73,9 @@ interface IVarianceMarket {
         uint256 subscribedLong;
         uint256 subscribedShort;
         uint256 matchedUnits;
-        uint128 fillLongWad;
-        uint128 fillShortWad;
+        uint256 matchedAtActivation;
+        uint256 longAtActivation;
+        uint256 shortAtActivation;
         Variance realizedVariance;
     }
 
@@ -98,7 +99,7 @@ interface IVarianceMarket {
         uint256 indexed seriesId, Side indexed side, address indexed account, uint256 units, uint256 amount
     );
     event SeriesActivated(
-        uint256 indexed seriesId, uint256 matchedUnits, uint128 fillLongWad, uint128 fillShortWad
+        uint256 indexed seriesId, uint256 matchedUnits, uint256 longAtActivation, uint256 shortAtActivation
     );
     event SeriesCancelled(uint256 indexed seriesId);
     event PositionsMinted(

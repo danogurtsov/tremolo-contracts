@@ -116,7 +116,7 @@ contract VarianceMarketTest is BaseTest {
 
         vm.prank(alice);
         vm.expectRevert(IVarianceMarket.SubscriptionClosed.selector);
-        market.subscribe(id, IVarianceMarket.Side.LONG, 1);
+        market.subscribe(id, IVarianceMarket.Side.LONG, 1e18);
     }
 
     function test_activate_revertsBeforeStart() public {
@@ -126,13 +126,13 @@ contract VarianceMarketTest is BaseTest {
     }
 
     function test_settle_revertsBeforeExpiry() public {
-        uint256 id = openMatchedSeries(3);
+        uint256 id = openMatchedSeries(3e18);
         vm.expectRevert(IVarianceMarket.TooEarly.selector);
         market.settle(id);
     }
 
     function test_settle_revertsIfAlreadySettled() public {
-        uint256 id = openMatchedSeries(3);
+        uint256 id = openMatchedSeries(3e18);
         fillPoolSawtooth(id, 1 hours, 40);
         market.settle(id);
 
@@ -143,31 +143,31 @@ contract VarianceMarketTest is BaseTest {
     }
 
     function test_net_revertsWithoutBothLegs() public {
-        uint256 id = openMatchedSeries(5);
+        uint256 id = openMatchedSeries(5e18);
         vm.prank(alice); // holds only the long leg
         vm.expectRevert(IVarianceMarket.InsufficientPosition.selector);
-        market.net(id, 1);
+        market.net(id, 1e18);
     }
 
     function test_redeem_revertsBeforeSettlement() public {
-        uint256 id = openMatchedSeries(5);
+        uint256 id = openMatchedSeries(5e18);
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(IVarianceMarket.WrongState.selector, IVarianceMarket.State.ACTIVE)
         );
-        market.redeem(id, IVarianceMarket.Side.LONG, 1, alice);
+        market.redeem(id, IVarianceMarket.Side.LONG, 1e18, alice);
     }
 
     /// @notice Redeeming twice is impossible: the position is burned on the way out.
     function test_redeem_cannotBeReplayed() public {
-        uint256 id = openMatchedSeries(4);
+        uint256 id = openMatchedSeries(4e18);
         fillPoolSawtooth(id, 1 hours, 40);
         market.settle(id);
 
         vm.startPrank(alice);
-        market.redeem(id, IVarianceMarket.Side.LONG, 4, alice);
+        market.redeem(id, IVarianceMarket.Side.LONG, 4e18, alice);
         vm.expectRevert(IVarianceMarket.InsufficientPosition.selector);
-        market.redeem(id, IVarianceMarket.Side.LONG, 1, alice);
+        market.redeem(id, IVarianceMarket.Side.LONG, 1e18, alice);
         vm.stopPrank();
     }
 
@@ -193,7 +193,7 @@ contract VarianceMarketTest is BaseTest {
     /// @dev The whole point of the guardian boundary. Anyone already exposed must be able to
     ///      reach their money without permission from anybody.
     function test_guardian_cannotBlockSettlementOfLiveSeries() public {
-        uint256 id = openMatchedSeries(6);
+        uint256 id = openMatchedSeries(6e18);
 
         vm.prank(guardian);
         market.setCreationPaused(true);
@@ -202,9 +202,9 @@ contract VarianceMarketTest is BaseTest {
         market.settle(id);
 
         vm.prank(alice);
-        market.redeem(id, IVarianceMarket.Side.LONG, 6, alice);
+        market.redeem(id, IVarianceMarket.Side.LONG, 6e18, alice);
         vm.prank(bob);
-        market.redeem(id, IVarianceMarket.Side.SHORT, 6, bob);
+        market.redeem(id, IVarianceMarket.Side.SHORT, 6e18, bob);
 
         assertEq(usdc.balanceOf(address(market)), 0, "guardian could not be routed around");
     }
@@ -227,8 +227,13 @@ contract VarianceMarketTest is BaseTest {
         assertEq(long + short, market.totalCollateralPerUnit(id));
     }
 
-    function testFuzz_subscribeThenUnsubscribe_isExactlyNeutral(uint256 units) public {
-        units = bound(units, 1, 1000);
+    /// @notice A subscription round trip costs at most one wei, and that wei stays in the series.
+    /// @dev Deposits round up and withdrawals round down, deliberately asymmetric: symmetric
+    ///      rounding would let a subscription be withdrawn in parts for more than it cost,
+    ///      since ceil(a+b) can be one wei below ceil(a) + ceil(b). The asymmetry moves that
+    ///      wei to the pool instead of taking it from another user's collateral.
+    function testFuzz_subscribeThenUnsubscribe_costsAtMostOneWei(uint256 units) public {
+        units = bound(units, 0.0001e18, 1000e18);
         uint256 id = createDefaultSeries();
         uint256 before = usdc.balanceOf(alice);
 
@@ -237,7 +242,29 @@ contract VarianceMarketTest is BaseTest {
         market.unsubscribe(id, IVarianceMarket.Side.LONG, units);
         vm.stopPrank();
 
-        assertEq(usdc.balanceOf(alice), before, "round trip was not neutral");
-        assertEq(market.collateralHeld(id), 0);
+        uint256 lost = before - usdc.balanceOf(alice);
+        assertLe(lost, 1, "round trip lost more than one wei");
+        assertEq(market.collateralHeld(id), lost, "the wei left the series");
+    }
+
+    /// @notice Withdrawing in parts never returns more than depositing in one go.
+    /// @dev The concrete attack the asymmetry closes: subscribe once, withdraw in slices.
+    function testFuzz_partialWithdrawalsCannotExceedDeposit(uint256 units, uint8 slices) public {
+        units = bound(units, 0.01e18, 1000e18);
+        slices = uint8(bound(slices, 2, 8));
+
+        uint256 id = createDefaultSeries();
+        uint256 before = usdc.balanceOf(alice);
+
+        vm.startPrank(alice);
+        market.subscribe(id, IVarianceMarket.Side.LONG, units);
+        uint256 each = units / slices;
+        for (uint256 i = 0; i < slices - 1; ++i) {
+            market.unsubscribe(id, IVarianceMarket.Side.LONG, each);
+        }
+        market.unsubscribe(id, IVarianceMarket.Side.LONG, units - each * (slices - 1));
+        vm.stopPrank();
+
+        assertLe(usdc.balanceOf(alice), before, "sliced withdrawal returned more than was paid");
     }
 }

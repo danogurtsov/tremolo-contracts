@@ -13,7 +13,7 @@ contract LifecycleTest is BaseTest {
     using VarianceMath for Variance;
 
     function test_fullLifecycle_volatileMarket_longWins() public {
-        uint256 units = 10;
+        uint256 units = 10e18;
         uint256 id = openMatchedSeries(units);
 
         uint256 poolBalanceAfterOpen = usdc.balanceOf(address(market));
@@ -45,11 +45,11 @@ contract LifecycleTest is BaseTest {
         assertEq(usdc.balanceOf(address(market)), 0, "collateral stranded");
 
         // Long profited, short lost, and neither can lose more than they put in.
-        assertGt(longPaid, market.collateralPerUnit(id, IVarianceMarket.Side.LONG) * units);
+        assertGt(longPaid, _valueOf(units, market.collateralPerUnit(id, IVarianceMarket.Side.LONG)));
     }
 
     function test_fullLifecycle_flatMarket_longLosesEverything() public {
-        uint256 units = 5;
+        uint256 units = 5e18;
         uint256 id = openMatchedSeries(units);
         uint256 pot = usdc.balanceOf(address(market));
 
@@ -73,7 +73,7 @@ contract LifecycleTest is BaseTest {
     /// @dev This is the scenario that liquidates people in a margined design. Here it is
     ///      simply the short side's maximum loss, which was posted up front.
     function test_extremeVariance_isCappedAndSolvent() public {
-        uint256 units = 3;
+        uint256 units = 3e18;
         uint256 id = openMatchedSeries(units);
         uint256 pot = usdc.balanceOf(address(market));
 
@@ -97,7 +97,7 @@ contract LifecycleTest is BaseTest {
 
     /// @notice A pool that stops trading yields a sparse window; the series must void, not lie.
     function test_sparseWindow_voidsAndRefunds() public {
-        uint256 units = 4;
+        uint256 units = 4e18;
         uint256 id = openMatchedSeries(units);
 
         uint256 aliceBefore = usdc.balanceOf(alice);
@@ -121,17 +121,18 @@ contract LifecycleTest is BaseTest {
         // Everyone gets exactly their deposit back — no gain, no loss, no judgement call.
         assertEq(
             usdc.balanceOf(alice),
-            aliceBefore + market.collateralPerUnit(id, IVarianceMarket.Side.LONG) * units
+            aliceBefore + _valueOf(units, market.collateralPerUnit(id, IVarianceMarket.Side.LONG))
         );
         assertEq(
-            usdc.balanceOf(bob), bobBefore + market.collateralPerUnit(id, IVarianceMarket.Side.SHORT) * units
+            usdc.balanceOf(bob),
+            bobBefore + _valueOf(units, market.collateralPerUnit(id, IVarianceMarket.Side.SHORT))
         );
         assertEq(usdc.balanceOf(address(market)), 0);
     }
 
     /// @notice A source that reverts outright voids the series rather than freezing it.
     function test_revertingSource_voids() public {
-        uint256 units = 2;
+        uint256 units = 2e18;
         uint256 id = openMatchedSeries(units);
         fillPoolSawtooth(id, 1 hours, 40);
 
@@ -146,7 +147,7 @@ contract LifecycleTest is BaseTest {
         uint256 id = createDefaultSeries();
 
         vm.prank(alice);
-        market.subscribe(id, IVarianceMarket.Side.LONG, 7);
+        market.subscribe(id, IVarianceMarket.Side.LONG, 7e18);
 
         uint256 before = usdc.balanceOf(alice);
         IVarianceMarket.Series memory s = market.getSeries(id);
@@ -156,8 +157,11 @@ contract LifecycleTest is BaseTest {
         assertEq(uint8(market.getSeries(id).state), uint8(IVarianceMarket.State.CANCELLED));
 
         vm.prank(alice);
-        market.unsubscribe(id, IVarianceMarket.Side.LONG, 7);
-        assertEq(usdc.balanceOf(alice), before + market.collateralPerUnit(id, IVarianceMarket.Side.LONG) * 7);
+        market.unsubscribe(id, IVarianceMarket.Side.LONG, 7e18);
+        assertEq(
+            usdc.balanceOf(alice),
+            before + _valueOf(7e18, market.collateralPerUnit(id, IVarianceMarket.Side.LONG))
+        );
         assertEq(usdc.balanceOf(address(market)), 0);
     }
 
@@ -166,32 +170,32 @@ contract LifecycleTest is BaseTest {
         uint256 id = createDefaultSeries();
 
         vm.prank(alice);
-        market.subscribe(id, IVarianceMarket.Side.LONG, 100);
+        market.subscribe(id, IVarianceMarket.Side.LONG, 100e18);
         vm.prank(bob);
-        market.subscribe(id, IVarianceMarket.Side.SHORT, 60);
+        market.subscribe(id, IVarianceMarket.Side.SHORT, 60e18);
 
         IVarianceMarket.Series memory s = market.getSeries(id);
         vm.warp(s.startTime);
         market.activate(id);
 
-        assertEq(market.getSeries(id).matchedUnits, 60, "matched should be the minimum");
+        assertEq(market.getSeries(id).matchedUnits, 60e18, "matched should be the minimum");
 
         uint256 aliceBefore = usdc.balanceOf(alice);
         (uint256 minted, uint256 refunded) = market.mintPositions(id, IVarianceMarket.Side.LONG, alice);
 
-        assertEq(minted, 60, "long fills 60 of 100");
-        assertEq(refunded, market.collateralPerUnit(id, IVarianceMarket.Side.LONG) * 40);
+        assertEq(minted, 60e18, "long fills 60 of 100");
+        assertEq(refunded, _valueOf(40e18, market.collateralPerUnit(id, IVarianceMarket.Side.LONG)));
         assertEq(usdc.balanceOf(alice), aliceBefore + refunded);
-        assertEq(market.balanceOf(alice, market.tokenId(id, IVarianceMarket.Side.LONG)), 60);
+        assertEq(market.balanceOf(alice, market.tokenId(id, IVarianceMarket.Side.LONG)), 60e18);
 
         (uint256 shortMinted, uint256 shortRefund) = market.mintPositions(id, IVarianceMarket.Side.SHORT, bob);
-        assertEq(shortMinted, 60, "short fills entirely");
+        assertEq(shortMinted, 60e18, "short fills entirely");
         assertEq(shortRefund, 0);
     }
 
     /// @notice Netting both legs releases the full collateral and ends the exposure early.
     function test_netting_releasesCollateralBeforeExpiry() public {
-        uint256 units = 8;
+        uint256 units = 8e18;
         uint256 id = openMatchedSeries(units);
 
         // Resolved before the pranks: an external call inside an argument would consume the
