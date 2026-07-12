@@ -80,8 +80,14 @@ contract VarianceMarketInvariantTest is Test {
 
     /// @notice The ledger and the actual token balance never diverge.
     /// @dev Catches any path that moves tokens without updating `_collateralHeld`, or the
-    ///      reverse. With a single series in the fixture the two must be equal exactly.
-    function invariant_ledgerMatchesBalance() public view {
+    ///      reverse.
+    ///
+    ///      Note the limit of this form: it is only equality because the fixture holds exactly
+    ///      one series. Written this way against a live contract it would be false, since the
+    ///      balance backs every series at once. The general statement — per token, the sum over
+    ///      series equals the balance — lives in MultiSeries.invariant.t.sol, along with the
+    ///      isolation property this file cannot express at all.
+    function invariant_singleSeriesLedgerMatchesBalance() public view {
         assertEq(
             market.collateralHeld(seriesId), usdc.balanceOf(address(market)), "ledger diverged from balance"
         );
