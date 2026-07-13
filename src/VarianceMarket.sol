@@ -61,6 +61,11 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     uint256 internal constant MAX_STRIKE = 100e18; // sigma = 1000% annualised
     uint16 internal constant MIN_SAMPLES = 2;
 
+    /// @dev The core keeps its own ceiling rather than trusting the adapter's. A third-party
+    ///      observer with a laxer limit would otherwise turn settlement into a gas bomb that
+    ///      nobody can afford to trigger — leaving a series permanently unsettleable.
+    uint16 internal constant MAX_SAMPLES = 256;
+
     /// @dev Positions are denominated in WAD, so a "unit" is 1e18. Fractional units are not a
     ///      convenience: pro-rata matching cannot be exact over indivisible units, and the gap
     ///      lands on solvency rather than on rounding. See the note on `mintPositions`.
@@ -161,7 +166,7 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
 
         uint32 window = uint32(p.expiry - p.startTime);
         if (window < MIN_WINDOW || window > MAX_WINDOW) revert InvalidWindow(window);
-        if (p.samples < MIN_SAMPLES) revert InvalidSamples(p.samples);
+        if (p.samples < MIN_SAMPLES || p.samples > MAX_SAMPLES) revert InvalidSamples(p.samples);
         if (window / p.samples < MIN_GRID_STEP) revert GridStepTooSmall(window / p.samples);
 
         if (Variance.unwrap(p.strike) == 0 || Variance.unwrap(p.strike) > MAX_STRIKE) {

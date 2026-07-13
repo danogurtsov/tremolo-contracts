@@ -42,9 +42,21 @@ contract UniV3Observer is IPriceObserver {
     error WindowTooLong(uint32 windowSeconds);
     error FutureWindow();
 
-    /// @dev Upper bound on a single settlement read. Keeps `observe()` inside a sane gas
-    ///      envelope; larger series split across several reads in v1.
-    uint16 public constant MAX_SAMPLES = 1024;
+    /// @dev Upper bound on a single settlement read, set from a measurement rather than a
+    ///      guess. Gas for `sampleTicks` against the real WETH/USDC pool on Base:
+    ///
+    ///           12 points     0.50M      24 points     0.65M
+    ///           96 points     2.48M     256 points    ~8.0M
+    ///          512 points    17.44M    1024 points    48.68M
+    ///
+    ///      Cost per point is roughly flat up to ~96 and then climbs, because each reading
+    ///      binary-searches a ring buffer that has to be walked further back. 1024 points was
+    ///      the original limit and is not usable: 48.68M gas is 12% of a whole Base block for a
+    ///      single settlement, and more than an entire Ethereum block.
+    ///
+    ///      256 sits at ~8M — a couple of percent of a Base block — and is the largest grid
+    ///      worth allowing. See docs/measurements/gas_profile.md and ADR-0006.
+    uint16 public constant MAX_SAMPLES = 256;
     uint16 public constant MIN_SAMPLES = 2;
 
     /// @inheritdoc IPriceObserver
