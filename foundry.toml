@@ -75,10 +75,12 @@ quote_style = "double"
 number_underscore = "thousands"
 wrap_comments = true
 
+# Public archive endpoints by default, so fork tests run with no configuration at all.
+# Override with BASE_RPC_URL / ARBITRUM_RPC_URL for a private node.
 [rpc_endpoints]
-base = "${BASE_RPC_URL}"
-arbitrum = "${ARBITRUM_RPC_URL}"
-mainnet = "${MAINNET_RPC_URL}"
+base = "${BASE_RPC_URL:-https://mainnet.base.org}"
+arbitrum = "${ARBITRUM_RPC_URL:-https://arb1.arbitrum.io/rpc}"
+mainnet = "${MAINNET_RPC_URL:-https://eth.llamarpc.com}"
 
 [etherscan]
 base = { key = "${ETHERSCAN_API_KEY}", chain = 8453 }
