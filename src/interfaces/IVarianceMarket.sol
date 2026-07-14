@@ -117,6 +117,7 @@ interface IVarianceMarket {
         uint256 amount
     );
     event CreationPauseSet(bool paused);
+    event GuardianTransferStarted(address indexed current, address indexed pending);
     event GuardianSet(address indexed guardian);
 
     // =====================================================================
@@ -143,6 +144,9 @@ interface IVarianceMarket {
     error NothingToMint();
     error TooEarly();
     error NotGuardian();
+    error NotPendingGuardian();
+    error ObserverHasNoCode(address observer);
+    error ActivationWindowClosed();
 
     // =====================================================================
     // Functions
