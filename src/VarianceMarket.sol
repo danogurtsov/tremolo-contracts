@@ -250,7 +250,17 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         else s.subscribedShort += units;
         _collateralHeld[seriesId] += amount;
 
+        // Credit only what actually arrived. A fee-on-transfer token would otherwise let a
+        // subscription be recorded in full while the market holds less collateral than the
+        // position it just sold requires — an under-collateralised series, which is the single
+        // thing this design promises cannot exist. Rejecting is the right answer rather than
+        // crediting the smaller amount: the deposit is derived from `units`, so a partial
+        // arrival means the series can no longer honour its own arithmetic.
+        uint256 balanceBefore = s.collateral.balanceOf(address(this));
         s.collateral.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 received = s.collateral.balanceOf(address(this)) - balanceBefore;
+        if (received != amount) revert CollateralShortfall(amount, received);
+
         emit Subscribed(seriesId, side, msg.sender, units, amount);
     }
 
