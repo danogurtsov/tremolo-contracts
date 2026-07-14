@@ -66,6 +66,15 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     ///      nobody can afford to trigger — leaving a series permanently unsettleable.
     uint16 internal constant MAX_SAMPLES = 256;
 
+    /// @dev How long after `startTime` a series may still be activated.
+    ///
+    ///      Without a deadline, a series nobody activated for a week would enter ACTIVE against
+    ///      a buffer that had long since been overwritten, and go straight to VOIDED. Deposits
+    ///      would come back either way, so nothing is lost — but the series would have spent
+    ///      that week claiming to be a live instrument, and an indexer would have believed it.
+    ///      Cancelling instead says the true thing.
+    uint32 internal constant ACTIVATION_GRACE = 1 hours;
+
     /// @dev Positions are denominated in WAD, so a "unit" is 1e18. Fractional units are not a
     ///      convenience: pro-rata matching cannot be exact over indivisible units, and the gap
     ///      lands on solvency rather than on rounding. See the note on `mintPositions`.
@@ -89,6 +98,9 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     mapping(uint256 id => uint256) internal _totalSupply;
 
     uint256 public seriesCount;
+
+    /// @notice Guardian nominated but not yet in office.
+    address public pendingGuardian;
 
     /// @notice May pause creation of NEW series. Cannot touch existing ones.
     /// @dev The boundary is the point. Anyone already holding a position must be able to reach
@@ -185,6 +197,12 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         uint256 shortDeposit = VarianceMath.shortCollateral(p.strike, p.capMultiple, p.notionalPerUnit);
         if (longDeposit == 0 || shortDeposit == 0) revert DegenerateCollateral();
 
+        // An address with no code answers every staticcall with empty returndata, which decodes
+        // as zero and would sail through validation. The series would then be created, funded,
+        // and only fail at settlement — where it voids and refunds, having wasted everyone's
+        // time and capital for the length of the window.
+        if (p.observer.code.length == 0) revert ObserverHasNoCode(p.observer);
+
         // The source must be able to answer for this window, checked before anyone commits
         // money rather than discovered at settlement.
         IPriceObserver(p.observer).validateSource(p.source, window, p.samples);
@@ -278,6 +296,14 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         uint256 long = s.subscribedLong;
         uint256 short = s.subscribedShort;
         uint256 matched = long < short ? long : short;
+
+        // Too late to start measuring: the window has already been running without anyone
+        // committing to it, and the source's memory of the early part may be gone.
+        if (block.timestamp > s.startTime + ACTIVATION_GRACE) {
+            s.state = State.CANCELLED;
+            emit SeriesCancelled(seriesId);
+            return;
+        }
 
         if (matched == 0) {
             // Nobody took the other side. Everything is refundable via `unsubscribe`.
@@ -479,10 +505,22 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         emit CreationPauseSet(paused);
     }
 
-    function setGuardian(address newGuardian) external {
+    /// @notice Nominates a new guardian. Takes effect only once the nominee accepts.
+    /// @dev Two steps on purpose. A single-step transfer hands the pause switch to whatever
+    ///      address was typed, and a typo is unrecoverable — there is no second guardian to
+    ///      undo it. Requiring the nominee to act proves the address is controlled by someone.
+    function transferGuardian(address newGuardian) external {
         if (msg.sender != guardian) revert NotGuardian();
-        guardian = newGuardian;
-        emit GuardianSet(newGuardian);
+        pendingGuardian = newGuardian;
+        emit GuardianTransferStarted(guardian, newGuardian);
+    }
+
+    /// @notice Completes a guardian transfer.
+    function acceptGuardian() external {
+        if (msg.sender != pendingGuardian) revert NotPendingGuardian();
+        guardian = pendingGuardian;
+        pendingGuardian = address(0);
+        emit GuardianSet(guardian);
     }
 
     // =====================================================================
