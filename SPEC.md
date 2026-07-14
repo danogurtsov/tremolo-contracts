@@ -129,18 +129,43 @@ Immutable parameters mean a wrong series is wrong forever, so creation is strict
 Voiding returns deposits. Settling on a series that is mostly interpolation would pay out
 on an artefact, and would make killing a source a profitable strategy.
 
-## 6. Known bias
+## 6. The bias, measured
 
-Uniswap interpolates linearly between genuine recordings. A dense grid over a quiet pool yields
-an artificially smooth series and **understates** realized variance. The protocol reports
-completeness rather than correcting the number.
+**The settled quantity is roughly one third below spot realized variance.** This is part of
+the instrument's definition.
 
-The related structural fact: a fixed-size ring buffer is overwritten faster the busier the pool
-is, so **the deepest pools have the shortest memory**. Liquidity depth, which protects against
-manipulation, works against history depth. Extending a buffer is permissionless.
+Each grid point is a TWAP over its step, and averaging inside a step cancels movement within it.
+Measured on the live WETH/USDC 0.05% pool on Base:
 
-The magnitude of the bias as a function of pool activity is not yet measured. Until it is,
-`minCompletenessBps` is set conservatively rather than derived.
+| Window | twap / spot | Range across grids |
+|---|---|---|
+| 6 hours | **67%** | 45–80% |
+| 1 hour | **64%** | 50–82% |
+| 6 hours, thin pool | 112% | 95–121% |
+
+For a Brownian path the theoretical ratio is exactly 2/3. The measurement matches it.
+
+**Consequence for pricing.** A strike taken from an off-chain implied volatility is a
+spot-based number. Quoted unadjusted against this settlement, the short side gains about a third
+of the notional for reasons unrelated to the market. Strikes must be derived from TWAP-based
+realized variance or scaled by the measured ratio.
+
+**Why not remove the bias.** Sampling spot at the boundaries would eliminate it, and would also
+make settlement cheap to manipulate: moving a spot print at a known instant costs one swap,
+moving a time-weighted average costs holding the price there.
+
+The bias does not trend with grid density between 12 and 256 points, so grid size is chosen on
+cost and completeness rather than to reduce it.
+
+**Completeness.** `minCompletenessBps` defaults to 10000 — one genuine recording per grid point.
+Derived from the thin-pool data: below that density the ratio becomes erratic with no pattern,
+which means the series has stopped describing a market. Full method and data in
+[docs/measurements/variance_bias.md](docs/measurements/variance_bias.md).
+
+**Buffer depth.** A fixed-size ring is overwritten faster the busier the pool is, so the deepest
+pools have the shortest memory. The target pool holds 32.5 hours at cardinality 5 000: a daily
+series fits, a weekly one does not. Extending is permissionless and costs $0.33 per 1 000 slots
+on Base.
 
 ## 7. Isolation between series
 

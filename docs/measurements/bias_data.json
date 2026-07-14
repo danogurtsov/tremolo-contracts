@@ -1,0 +1,170 @@
+{
+  "results": [
+    {
+      "label": "active pool (WETH/USDC 0.05%)",
+      "pool": "0xd0b53D9277642d899DF5C87A3966A349A798F224",
+      "endBlock": 49000000,
+      "endTimestamp": 1784789347,
+      "windowSeconds": 21600,
+      "swapCount": 3744,
+      "swapsNotMovingTick": 3187,
+      "grids": [
+        {
+          "grid": 6,
+          "stepSeconds": 3600.0,
+          "spotVariance": 0.03846715325261878,
+          "twapVariance": 0.017401459839514834,
+          "twapOverSpot": 0.4523719165085389
+        },
+        {
+          "grid": 12,
+          "stepSeconds": 1800.0,
+          "spotVariance": 0.04886131382789945,
+          "twapVariance": 0.03382481749006364,
+          "twapOverSpot": 0.6922617269196295
+        },
+        {
+          "grid": 24,
+          "stepSeconds": 900.0,
+          "spotVariance": 0.07335766417245136,
+          "twapVariance": 0.0447591240502957,
+          "twapOverSpot": 0.6101492537313433
+        },
+        {
+          "grid": 48,
+          "stepSeconds": 450.0,
+          "spotVariance": 0.07639416052028618,
+          "twapVariance": 0.04791240871920107,
+          "twapOverSpot": 0.6271737053315498
+        },
+        {
+          "grid": 96,
+          "stepSeconds": 225.0,
+          "spotVariance": 0.0688905108915021,
+          "twapVariance": 0.055080291924907265,
+          "twapOverSpot": 0.7995337995337995
+        },
+        {
+          "grid": 192,
+          "stepSeconds": 112.5,
+          "spotVariance": 0.06830656928614924,
+          "twapVariance": 0.04745985397505262,
+          "twapOverSpot": 0.6948065826031203
+        },
+        {
+          "grid": 256,
+          "stepSeconds": 84.375,
+          "spotVariance": 0.05750364958712158,
+          "twapVariance": 0.046087591202473424,
+          "twapOverSpot": 0.8014724549378015
+        }
+      ]
+    },
+    {
+      "label": "thin pool (WETH/USDC 1.00%)",
+      "pool": "0x0b1C2DCbBfA744ebD3fC17fF1A96A1E1Eb4B2d69",
+      "endBlock": 49000000,
+      "endTimestamp": 1784789347,
+      "windowSeconds": 21600,
+      "swapCount": 22,
+      "swapsNotMovingTick": 12,
+      "grids": [
+        {
+          "grid": 6,
+          "stepSeconds": 3600.0,
+          "spotVariance": 0.0005985401454866679,
+          "twapVariance": 0.0005693430652190255,
+          "twapOverSpot": 0.9512195121951219
+        },
+        {
+          "grid": 12,
+          "stepSeconds": 1800.0,
+          "spotVariance": 0.00042335766388081384,
+          "twapVariance": 0.0005109489046837409,
+          "twapOverSpot": 1.206896551724138
+        },
+        {
+          "grid": 24,
+          "stepSeconds": 900.0,
+          "spotVariance": 0.0003649635033455292,
+          "twapVariance": 0.00037956204347935034,
+          "twapOverSpot": 1.04
+        },
+        {
+          "grid": 48,
+          "stepSeconds": 450.0,
+          "spotVariance": 0.0002773722625426022,
+          "twapVariance": 0.0003065693428102445,
+          "twapOverSpot": 1.105263157894737
+        },
+        {
+          "grid": 96,
+          "stepSeconds": 225.0,
+          "spotVariance": 0.0002773722625426022,
+          "twapVariance": 0.00033576642307788684,
+          "twapOverSpot": 1.2105263157894737
+        },
+        {
+          "grid": 192,
+          "stepSeconds": 112.5,
+          "spotVariance": 0.0002773722625426022,
+          "twapVariance": 0.0003065693428102445,
+          "twapOverSpot": 1.105263157894737
+        },
+        {
+          "grid": 256,
+          "stepSeconds": 84.375,
+          "spotVariance": 0.0002773722625426022,
+          "twapVariance": 0.00033576642307788684,
+          "twapOverSpot": 1.2105263157894737
+        }
+      ]
+    },
+    {
+      "label": "active pool, 1h window",
+      "pool": "0xd0b53D9277642d899DF5C87A3966A349A798F224",
+      "endBlock": 49000000,
+      "endTimestamp": 1784789347,
+      "windowSeconds": 3600,
+      "swapCount": 551,
+      "swapsNotMovingTick": 476,
+      "grids": [
+        {
+          "grid": 6,
+          "stepSeconds": 600.0,
+          "spotVariance": 0.016554744511753205,
+          "twapVariance": 0.008321167876278065,
+          "twapOverSpot": 0.5026455026455027
+        },
+        {
+          "grid": 12,
+          "stepSeconds": 300.0,
+          "spotVariance": 0.036700729896426414,
+          "twapVariance": 0.023036496331169803,
+          "twapOverSpot": 0.6276849642004774
+        },
+        {
+          "grid": 24,
+          "stepSeconds": 150.0,
+          "spotVariance": 0.04265693427102545,
+          "twapVariance": 0.024437956184016636,
+          "twapOverSpot": 0.5728952772073922
+        },
+        {
+          "grid": 48,
+          "stepSeconds": 75.0,
+          "spotVariance": 0.037051094859638124,
+          "twapVariance": 0.030218978077009816,
+          "twapOverSpot": 0.8156028368794326
+        },
+        {
+          "grid": 96,
+          "stepSeconds": 37.5,
+          "spotVariance": 0.031970802893068355,
+          "twapVariance": 0.021547445237520044,
+          "twapOverSpot": 0.673972602739726
+        }
+      ]
+    }
+  ]
+}
