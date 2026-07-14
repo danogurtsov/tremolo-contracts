@@ -26,8 +26,19 @@ Most of what could go wrong lives in these assumptions rather than in the code:
 2. **A sparse window is detectable.** Completeness is measured by counting genuine recordings
    in the ring buffer. An adapter that cannot distinguish recorded values from interpolated
    ones degrades this check to a no-op.
-3. **Collateral tokens behave like ERC-20.** Fee-on-transfer and rebasing tokens are not
-   supported and will break the accounting; series should not be created with them.
+3. **Collateral tokens behave like ERC-20** — with the deviations below handled explicitly
+   rather than assumed away. Each row is backed by a test in `test/unit/HostileTokens.t.sol`.
+
+   | Token behaviour | What happens | Test |
+   |---|---|---|
+   | No return value on `transfer` (USDT) | **Supported.** SafeTransferLib handles it | `test_noReturnToken_worksEndToEnd` |
+   | Reverts on zero-value transfer | **Supported.** Zero payouts skip the transfer entirely | `test_revertOnZeroToken_losingSideCanStillRedeem` |
+   | Fee on transfer | **Rejected at subscription.** The market credits only what arrived, and reverts if it is short | `testFuzz_feeOnTransferToken_isRejectedAtAnyFee` |
+   | Callback to recipient (ERC-777) | **Contained.** Reentrancy guard holds on the way in and on the way out | `test_reentrantToken_cannotReenter*` |
+   | Rebasing | **Unsupported and undetected.** A balance that changes on its own breaks the ledger silently; do not create series with one |
+
+   Fee-on-transfer is rejected because crediting the smaller amount would leave the series
+   holding less collateral than the position it just sold requires.
 4. **Integer rounding always favours the pool.** Deposits round up, payouts round down. Dust
    accumulates in the series and can only make it more solvent, never less.
 
