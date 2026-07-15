@@ -170,6 +170,7 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     /// @inheritdoc IVarianceMarket
     function createSeries(SeriesParams calldata p) external returns (uint256 seriesId) {
         if (creationPaused) revert CreationPaused();
+        if (p.startTime <= block.timestamp) revert StartInPast();
         _validateParams(p);
 
         seriesId = ++seriesCount;
@@ -200,11 +201,10 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     /// @dev Split out of `createSeries` so that neither half is hard to read. Everything here
     ///      is a guard against a series that would be wrong forever: parameters are immutable
     ///      once written, so validation at creation is the only defence there is.
-    function _validateParams(SeriesParams calldata p) internal view {
+    function _validateParams(SeriesParams memory p) internal view {
         if (p.observer == address(0) || p.source == address(0) || p.collateral == address(0)) {
             revert ZeroAddress();
         }
-        if (p.startTime <= block.timestamp) revert StartInPast();
         if (p.expiry <= p.startTime) revert ExpiryBeforeStart();
 
         uint32 window = uint32(p.expiry - p.startTime);
@@ -237,6 +237,88 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         // The source must be able to answer for this window, checked before anyone commits
         // money rather than discovered at settlement.
         IPriceObserver(p.observer).validateSource(p.source, window, p.samples);
+    }
+
+    /// @notice Creates a series that starts immediately, with both legs already filled.
+    ///
+    /// @dev The subscription flow answers "who wants this instrument at this strike"; it does
+    ///      not answer "what is the strike". Nothing in v0 did. A strike was whatever the
+    ///      creator typed, and a taker could only enter during a subscription window that had
+    ///      to be opened in advance.
+    ///
+    ///      Here instead a counterparty who is willing to take a side names the strike, and
+    ///      the trade opens against it on the spot. Both legs are funded in the same
+    ///      transaction, so the series is fully collateralised from its first block and there is
+    ///      no window in which one side is committed and the other is not.
+    ///
+    ///      It checks parameters and moves collateral, nothing else. Who agreed to what, and
+    ///      on what terms, is settled one layer up in `RFQSettlement`, which is where
+    ///      signatures, deadlines and replay protection belong.
+    ///
+    /// @param p Series parameters. `startTime` is ignored and set to now.
+    /// @param longSide Account taking the long leg; must have approved this contract.
+    /// @param shortSide Account taking the short leg; must have approved this contract.
+    /// @param units Size of both legs, WAD-denominated.
+    function openImmediate(SeriesParams calldata p, address longSide, address shortSide, uint256 units)
+        external
+        nonReentrant
+        returns (uint256 seriesId)
+    {
+        if (creationPaused) revert CreationPaused();
+        if (units < MIN_SUBSCRIPTION) revert ZeroUnits();
+        if (longSide == address(0) || shortSide == address(0)) revert ZeroAddress();
+
+        SeriesParams memory q = p;
+        q.startTime = uint64(block.timestamp);
+        if (q.expiry <= q.startTime) revert ExpiryBeforeStart();
+        _validateParams(q);
+
+        seriesId = ++seriesCount;
+        _series[seriesId] = Series({
+            observer: q.observer,
+            source: q.source,
+            collateral: q.collateral,
+            startTime: q.startTime,
+            expiry: q.expiry,
+            samples: q.samples,
+            minCompletenessBps: q.minCompletenessBps,
+            capMultiple: q.capMultiple,
+            state: State.ACTIVE,
+            strike: q.strike,
+            notionalPerUnit: q.notionalPerUnit,
+            subscribedLong: 0,
+            subscribedShort: 0,
+            matchedUnits: units,
+            matchedAtActivation: units,
+            longAtActivation: units,
+            shortAtActivation: units,
+            realizedVariance: Variance.wrap(0)
+        });
+
+        emit SeriesCreated(seriesId, q.observer, q.source, q.collateral, q.strike, q.startTime, q.expiry);
+
+        _pullCollateral(seriesId, Side.LONG, longSide, units);
+        _pullCollateral(seriesId, Side.SHORT, shortSide, units);
+
+        _mint(longSide, tokenId(seriesId, Side.LONG), units);
+        _mint(shortSide, tokenId(seriesId, Side.SHORT), units);
+
+        emit SeriesActivated(seriesId, units, units, units);
+        emit PositionsMinted(seriesId, Side.LONG, longSide, units, 0);
+        emit PositionsMinted(seriesId, Side.SHORT, shortSide, units, 0);
+    }
+
+    /// @dev Shared with `subscribe`: takes collateral and refuses anything that arrives short.
+    function _pullCollateral(uint256 seriesId, Side side, address from, uint256 units) internal {
+        Series storage s = _series[seriesId];
+        uint256 amount = _depositFor(units, collateralPerUnit(seriesId, side));
+
+        uint256 balanceBefore = s.collateral.balanceOf(address(this));
+        s.collateral.safeTransferFrom(from, address(this), amount);
+        uint256 received = s.collateral.balanceOf(address(this)) - balanceBefore;
+        if (received != amount) revert CollateralShortfall(amount, received);
+
+        _collateralHeld[seriesId] += amount;
     }
 
     // =====================================================================
