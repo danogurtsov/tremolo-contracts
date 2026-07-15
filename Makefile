@@ -1,4 +1,4 @@
-.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage
+.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage mutate bias
 
 help:
 	@echo "make build      - compile contracts"
@@ -37,7 +37,15 @@ lint:
 	forge lint
 
 coverage:
-	forge coverage --report summary
+	forge coverage --report summary --no-match-path "test/fork/*"
+
+# Does the suite actually catch anything? Line coverage cannot answer that.
+mutate:
+	python3 tools/mutate.py --report docs/measurements/mutation_report.md
+
+# How much variance the TWAP grid destroys, against live pools.
+bias:
+	python3 reference/bias_measurement.py
 
 clean:
 	forge clean
