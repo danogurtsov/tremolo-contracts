@@ -76,9 +76,7 @@ contract HardeningTest is BaseTest {
         IVarianceMarket.SeriesParams memory p = defaultParams();
         p.observer = address(0xBEEF);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IVarianceMarket.ObserverHasNoCode.selector, address(0xBEEF))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IVarianceMarket.ObserverHasNoCode.selector, address(0xBEEF)));
         market.createSeries(p);
     }
 

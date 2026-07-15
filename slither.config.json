@@ -1,0 +1,8 @@
+{
+  "filter_paths": "lib/|src/mocks/|test/",
+  "exclude_informational": false,
+  "exclude_low": false,
+  "solc_remaps": ["forge-std/=lib/forge-std/src/", "solady/=lib/solady/src/"],
+  "detectors_to_exclude": "naming-convention,solc-version,assembly,low-level-calls",
+  "fail_on": "medium"
+}

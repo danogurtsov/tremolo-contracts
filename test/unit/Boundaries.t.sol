@@ -63,7 +63,7 @@ contract BoundariesTest is Test {
     function test_fromPrices_flatSeriesIsExactlyZero() public pure {
         uint256[] memory prices = new uint256[](8);
         for (uint256 i = 0; i < 8; ++i) {
-            prices[i] = 2_500e18;
+            prices[i] = 2500e18;
         }
         assertEq(Variance.unwrap(VarianceMath.fromPrices(prices, 1 days)), 0);
     }

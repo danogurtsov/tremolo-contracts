@@ -48,7 +48,9 @@ contract EventsTest is BaseTest {
         // Withdrawals round down while deposits round up, so the amount in this event is not
         // simply the amount from the subscription. Asserting the exact figure pins that.
         vm.expectEmit(true, true, true, true, address(market));
-        emit IVarianceMarket.Unsubscribed(id, IVarianceMarket.Side.LONG, alice, units, _valueOf(units, perUnit));
+        emit IVarianceMarket.Unsubscribed(
+            id, IVarianceMarket.Side.LONG, alice, units, _valueOf(units, perUnit)
+        );
         market.unsubscribe(id, IVarianceMarket.Side.LONG, units);
         vm.stopPrank();
     }

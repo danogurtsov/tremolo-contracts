@@ -110,6 +110,9 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     bool public creationPaused;
 
     constructor(address guardian_) {
+        // A zero guardian would make `setCreationPaused` permanently unreachable. The two-step
+        // transfer protects against a mistyped handover later, but nothing protects deployment.
+        if (guardian_ == address(0)) revert ZeroAddress();
         guardian = guardian_;
     }
 
@@ -170,6 +173,37 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     /// @inheritdoc IVarianceMarket
     function createSeries(SeriesParams calldata p) external returns (uint256 seriesId) {
         if (creationPaused) revert CreationPaused();
+        _validateParams(p);
+
+        seriesId = ++seriesCount;
+        _series[seriesId] = Series({
+            observer: p.observer,
+            source: p.source,
+            collateral: p.collateral,
+            startTime: p.startTime,
+            expiry: p.expiry,
+            samples: p.samples,
+            minCompletenessBps: p.minCompletenessBps,
+            capMultiple: p.capMultiple,
+            state: State.SUBSCRIBING,
+            strike: p.strike,
+            notionalPerUnit: p.notionalPerUnit,
+            subscribedLong: 0,
+            subscribedShort: 0,
+            matchedUnits: 0,
+            matchedAtActivation: 0,
+            longAtActivation: 0,
+            shortAtActivation: 0,
+            realizedVariance: Variance.wrap(0)
+        });
+
+        emit SeriesCreated(seriesId, p.observer, p.source, p.collateral, p.strike, p.startTime, p.expiry);
+    }
+
+    /// @dev Split out of `createSeries` so that neither half is hard to read. Everything here
+    ///      is a guard against a series that would be wrong forever: parameters are immutable
+    ///      once written, so validation at creation is the only defence there is.
+    function _validateParams(SeriesParams calldata p) internal view {
         if (p.observer == address(0) || p.source == address(0) || p.collateral == address(0)) {
             revert ZeroAddress();
         }
@@ -206,30 +240,6 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         // The source must be able to answer for this window, checked before anyone commits
         // money rather than discovered at settlement.
         IPriceObserver(p.observer).validateSource(p.source, window, p.samples);
-
-        seriesId = ++seriesCount;
-        _series[seriesId] = Series({
-            observer: p.observer,
-            source: p.source,
-            collateral: p.collateral,
-            startTime: p.startTime,
-            expiry: p.expiry,
-            samples: p.samples,
-            minCompletenessBps: p.minCompletenessBps,
-            capMultiple: p.capMultiple,
-            state: State.SUBSCRIBING,
-            strike: p.strike,
-            notionalPerUnit: p.notionalPerUnit,
-            subscribedLong: 0,
-            subscribedShort: 0,
-            matchedUnits: 0,
-            matchedAtActivation: 0,
-            longAtActivation: 0,
-            shortAtActivation: 0,
-            realizedVariance: Variance.wrap(0)
-        });
-
-        emit SeriesCreated(seriesId, p.observer, p.source, p.collateral, p.strike, p.startTime, p.expiry);
     }
 
     // =====================================================================
