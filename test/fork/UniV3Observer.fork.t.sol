@@ -73,7 +73,8 @@ contract UniV3ObserverForkTest is Test {
     /// @notice `maxLookback` must agree with the buffer read by hand.
     function test_maxLookback_matchesRawBuffer() public onFork {
         (,, uint16 index, uint16 cardinality,,,) = IUniswapV3PoolOracle(POOL).slot0();
-        (uint32 oldest,, , bool initialized) = IUniswapV3PoolOracle(POOL).observations((index + 1) % cardinality);
+        (uint32 oldest,,, bool initialized) =
+            IUniswapV3PoolOracle(POOL).observations((index + 1) % cardinality);
         if (!initialized) (oldest,,,) = IUniswapV3PoolOracle(POOL).observations(0);
 
         assertEq(
@@ -127,7 +128,7 @@ contract UniV3ObserverForkTest is Test {
         for (uint256 i = 0; i < ticks.length; ++i) {
             assertLt(_abs(ticks[i]), 887_272, "tick outside Uniswap's domain");
             // 2000 ticks is ~22%. Six hours of ETH never moves that far without it being news.
-            assertLt(_abs(ticks[i] - currentTick), 2_000, "tick implausibly far from spot");
+            assertLt(_abs(ticks[i] - currentTick), 2000, "tick implausibly far from spot");
         }
     }
 

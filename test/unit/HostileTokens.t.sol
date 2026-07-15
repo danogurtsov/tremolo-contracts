@@ -8,7 +8,10 @@ import {IVarianceMarket} from "../../src/interfaces/IVarianceMarket.sol";
 import {UniV3Observer} from "../../src/observers/UniV3Observer.sol";
 import {MockUniV3Pool} from "../../src/mocks/MockUniV3Pool.sol";
 import {
-    NoReturnToken, FeeOnTransferToken, ReentrantToken, RevertOnZeroToken
+    NoReturnToken,
+    FeeOnTransferToken,
+    ReentrantToken,
+    RevertOnZeroToken
 } from "../../src/mocks/HostileTokens.sol";
 import {Variance} from "../../src/types/Variance.sol";
 
@@ -45,7 +48,7 @@ contract HostileTokensTest is Test {
                 startTime: uint64(block.timestamp + 1 hours),
                 expiry: uint64(block.timestamp + 1 hours + 1 days),
                 samples: 24,
-                minCompletenessBps: 8_000,
+                minCompletenessBps: 8000,
                 capMultiple: CAP,
                 strike: STRIKE,
                 notionalPerUnit: notional
@@ -70,7 +73,7 @@ contract HostileTokensTest is Test {
         vm.prank(bob);
         usdt.approve(address(market), type(uint256).max);
 
-        uint256 id = _create(address(usdt), 1_000e6);
+        uint256 id = _create(address(usdt), 1000e6);
         uint256 units = 5e18;
 
         vm.prank(alice);
@@ -107,8 +110,8 @@ contract HostileTokensTest is Test {
     ///      revert here and trap the position permanently.
     function test_revertOnZeroToken_losingSideCanStillRedeem() public {
         RevertOnZeroToken roz = new RevertOnZeroToken();
-        roz.mint(alice, 1_000e18);
-        roz.mint(bob, 1_000e18);
+        roz.mint(alice, 1000e18);
+        roz.mint(bob, 1000e18);
         vm.prank(alice);
         roz.approve(address(market), type(uint256).max);
         vm.prank(bob);
@@ -153,7 +156,7 @@ contract HostileTokensTest is Test {
     ///      whole design claims is impossible.
     function test_feeOnTransferToken_isRejected() public {
         FeeOnTransferToken fot = new FeeOnTransferToken(100); // 1%
-        fot.mint(alice, 1_000e18);
+        fot.mint(alice, 1000e18);
         vm.prank(alice);
         fot.approve(address(market), type(uint256).max);
 
@@ -173,7 +176,7 @@ contract HostileTokensTest is Test {
 
     /// @notice The rejection holds for any fee, including a fee of one basis point.
     function testFuzz_feeOnTransferToken_isRejectedAtAnyFee(uint256 feeBps) public {
-        feeBps = bound(feeBps, 1, 5_000);
+        feeBps = bound(feeBps, 1, 5000);
 
         FeeOnTransferToken fot = new FeeOnTransferToken(feeBps);
         fot.mint(alice, 1_000_000e18);
@@ -197,7 +200,7 @@ contract HostileTokensTest is Test {
     ///      rather than a property.
     function test_reentrantToken_cannotReenterSubscribe() public {
         ReentrantToken rent = new ReentrantToken();
-        rent.mint(alice, 1_000e18);
+        rent.mint(alice, 1000e18);
         vm.prank(alice);
         rent.approve(address(market), type(uint256).max);
 
@@ -205,8 +208,7 @@ contract HostileTokensTest is Test {
 
         // On the way through `subscribe`, call `subscribe` again.
         rent.setAttack(
-            address(market),
-            abi.encodeCall(market.subscribe, (id, IVarianceMarket.Side.LONG, 1e18))
+            address(market), abi.encodeCall(market.subscribe, (id, IVarianceMarket.Side.LONG, 1e18))
         );
 
         vm.prank(alice);
@@ -217,8 +219,8 @@ contract HostileTokensTest is Test {
     /// @notice The same guard holds on the way out, during redemption.
     function test_reentrantToken_cannotReenterRedeem() public {
         ReentrantToken rent = new ReentrantToken();
-        rent.mint(alice, 1_000e18);
-        rent.mint(bob, 1_000e18);
+        rent.mint(alice, 1000e18);
+        rent.mint(bob, 1000e18);
         vm.prank(alice);
         rent.approve(address(market), type(uint256).max);
         vm.prank(bob);
@@ -248,8 +250,7 @@ contract HostileTokensTest is Test {
 
         // Redeem, and on the payout transfer try to redeem again.
         rent.setAttack(
-            address(market),
-            abi.encodeCall(market.redeem, (id, IVarianceMarket.Side.SHORT, units, bob))
+            address(market), abi.encodeCall(market.redeem, (id, IVarianceMarket.Side.SHORT, units, bob))
         );
 
         vm.prank(bob);

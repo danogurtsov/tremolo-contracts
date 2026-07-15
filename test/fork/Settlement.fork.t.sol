@@ -39,7 +39,7 @@ contract SettlementForkTest is Test {
     uint16 internal constant SAMPLES = 24;
     Variance internal constant STRIKE = Variance.wrap(0.04e18); // 20% annualised
     uint64 internal constant CAP = 2.5e18;
-    uint256 internal constant NOTIONAL = 1_000e6;
+    uint256 internal constant NOTIONAL = 1000e6;
 
     VarianceMarket internal market;
     UniV3Observer internal observer;
@@ -94,7 +94,7 @@ contract SettlementForkTest is Test {
                 startTime: startTime,
                 expiry: startTime + WINDOW,
                 samples: SAMPLES,
-                minCompletenessBps: 8_000,
+                minCompletenessBps: 8000,
                 capMultiple: CAP,
                 strike: STRIKE,
                 notionalPerUnit: NOTIONAL
@@ -108,7 +108,7 @@ contract SettlementForkTest is Test {
         market.subscribe(id, IVarianceMarket.Side.SHORT, units);
 
         uint256 pot = usdc.balanceOf(address(market));
-        assertEq(pot, 1_000e6, "pot should be notional * cap * K * units = 10 * 100 USDC");
+        assertEq(pot, 1000e6, "pot should be notional * cap * K * units = 10 * 100 USDC");
 
         // Forward to a block after expiry. The pool traded through the whole window while this
         // test did nothing at all — which is the entire point of the design.
@@ -155,7 +155,7 @@ contract SettlementForkTest is Test {
                 startTime: startTime,
                 expiry: startTime + WINDOW,
                 samples: SAMPLES,
-                minCompletenessBps: 8_000,
+                minCompletenessBps: 8000,
                 capMultiple: CAP,
                 strike: STRIKE,
                 notionalPerUnit: NOTIONAL

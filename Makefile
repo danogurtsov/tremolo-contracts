@@ -1,4 +1,4 @@
-.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage mutate bias
+.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage mutate bias verify slither
 
 help:
 	@echo "make build      - compile contracts"
@@ -10,6 +10,10 @@ help:
 	@echo "make fmt        - format"
 	@echo "make lint       - forge lint"
 	@echo "make coverage   - line coverage report"
+	@echo "make verify     - symbolic proofs (halmos)"
+	@echo "make slither    - static analysis"
+	@echo "make mutate     - mutation testing"
+	@echo "make bias       - measure grid bias against live pools"
 
 build:
 	forge build
@@ -38,6 +42,14 @@ lint:
 
 coverage:
 	forge coverage --report summary --no-match-path "test/fork/*"
+
+# Symbolic proofs. Three properties discharge; the four that do not are documented in
+# docs/measurements/formal_verification.md rather than reported as passing.
+verify:
+	halmos --match-contract VarianceMathSymbolicTest --solver-timeout-assertion 60000
+
+slither:
+	slither . --config-file slither.config.json
 
 # Does the suite actually catch anything? Line coverage cannot answer that.
 mutate:
