@@ -45,9 +45,10 @@ Stated up front, because the list is short and hiding it would be worse than hav
 
 - **No partial margin.** Capital efficiency is deliberately traded for the absence of
   liquidations. Margin is v1.
-- **No early exit against the protocol.** Exit is by netting: buy the opposite leg of the same
-  series and the collateral is released in full, at any time, with no price and no oracle.
-  Someone has to be willing to take the other side.
+- **No resting order book.** Entry is by filling a signed quote (`RFQSettlement`), which opens
+  both legs immediately at the strike the maker named. Quote distribution is off chain. Exit is
+  by netting: sell the leg back to someone holding the other, and collateral is released in full
+  with no price and no oracle.
 - **No unmatched-subscription refund before expiry.** A partially filled subscription gets its
   remainder back when positions are minted, not on demand during the window.
 - **No protocol fee.** The field is absent rather than set to zero; introducing one changes the
@@ -63,6 +64,7 @@ Stated up front, because the list is short and hiding it would be worse than hav
 ```
 src/
   VarianceMarket.sol        singleton: registry, subscription, netting, settlement, ERC-6909
+  RFQSettlement.sol         EIP-712 quotes: price discovery and entry on demand
   libraries/VarianceMath    the calculation and the settlement identities
   observers/UniV3Observer   rebuilds a tick series from a Uniswap V3 buffer
   types/Variance.sol        user-defined type: variance is not volatility

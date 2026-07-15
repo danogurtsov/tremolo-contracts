@@ -154,6 +154,9 @@ interface IVarianceMarket {
     // =====================================================================
 
     function createSeries(SeriesParams calldata params) external returns (uint256 seriesId);
+    function openImmediate(SeriesParams calldata params, address longSide, address shortSide, uint256 units)
+        external
+        returns (uint256 seriesId);
     function subscribe(uint256 seriesId, Side side, uint256 units) external;
     function unsubscribe(uint256 seriesId, Side side, uint256 units) external;
     function activate(uint256 seriesId) external;
