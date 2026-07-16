@@ -95,12 +95,12 @@ contract UniV3ObserverForkTest is Test {
     ///
     ///      The comparison is done independently here: build `secondsAgos` from scratch, call
     ///      `observe` directly, and difference the cumulatives without touching library code.
-    function test_sampleTicks_matchesIndependentReconstruction() public onFork {
+    function test_sampleSeries_matchesIndependentReconstruction() public onFork {
         uint32 endTime = uint32(block.timestamp);
         uint32 window = 6 hours;
         uint16 samples = 24;
 
-        int256[] memory got = observer.sampleTicks(POOL, endTime, window, samples);
+        int256[] memory got = observer.sampleSeries(POOL, endTime, window, samples);
         assertEq(got.length, samples, "wrong series length");
 
         uint32 step = window / samples;
@@ -121,9 +121,9 @@ contract UniV3ObserverForkTest is Test {
     /// @notice Ticks come back inside Uniswap's own domain, and near the pool's current price.
     /// @dev A cheap sanity net: an adapter that mixed up sign or scale would still produce a
     ///      well-formed array, and only a range check catches that.
-    function test_sampleTicks_areNearCurrentPrice() public onFork {
+    function test_sampleSeries_areNearCurrentPrice() public onFork {
         (, int24 currentTick,,,,,) = IUniswapV3PoolOracle(POOL).slot0();
-        int256[] memory ticks = observer.sampleTicks(POOL, uint32(block.timestamp), 6 hours, 24);
+        int256[] memory ticks = observer.sampleSeries(POOL, uint32(block.timestamp), 6 hours, 24);
 
         for (uint256 i = 0; i < ticks.length; ++i) {
             assertLt(_abs(ticks[i]), 887_272, "tick outside Uniswap's domain");
@@ -148,7 +148,7 @@ contract UniV3ObserverForkTest is Test {
     ///      between a very quiet 10% and a very stressed 250%. Anything outside that is a units
     ///      bug, and a units bug is exactly the kind of thing a mock cannot reveal.
     function test_realizedVariance_isPlausibleForEth() public onFork {
-        int256[] memory ticks = observer.sampleTicks(POOL, uint32(block.timestamp), 6 hours, 24);
+        int256[] memory ticks = observer.sampleSeries(POOL, uint32(block.timestamp), 6 hours, 24);
         Variance rv = VarianceMath.fromTicks(ticks, 6 hours);
 
         uint256 raw = Variance.unwrap(rv);
@@ -189,7 +189,7 @@ contract UniV3ObserverForkTest is Test {
         uint256[4] memory results;
 
         for (uint256 i = 0; i < grids.length; ++i) {
-            int256[] memory ticks = observer.sampleTicks(POOL, uint32(block.timestamp), 6 hours, grids[i]);
+            int256[] memory ticks = observer.sampleSeries(POOL, uint32(block.timestamp), 6 hours, grids[i]);
             results[i] = Variance.unwrap(VarianceMath.fromTicks(ticks, 6 hours));
             console2.log("grid points / variance (wad)", grids[i], results[i]);
         }

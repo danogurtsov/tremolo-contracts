@@ -59,6 +59,11 @@ contract UniV3Observer is IPriceObserver {
     uint16 public constant MIN_SAMPLES = 2;
 
     /// @inheritdoc IPriceObserver
+    function seriesKind() external pure returns (SeriesKind) {
+        return SeriesKind.TICKS;
+    }
+
+    /// @inheritdoc IPriceObserver
     function kind() external pure returns (string memory) {
         return "uniswap-v3-twap";
     }
@@ -121,10 +126,10 @@ contract UniV3Observer is IPriceObserver {
     ///      integral of tick over time, so the average tick across a grid step is the
     ///      difference of two cumulatives divided by the step — an arithmetic mean of ticks,
     ///      i.e. a geometric mean of prices. That is the right series for log returns.
-    function sampleTicks(address source, uint32 endTime, uint32 windowSeconds, uint16 samples)
+    function sampleSeries(address source, uint32 endTime, uint32 windowSeconds, uint16 samples)
         external
         view
-        returns (int256[] memory ticks)
+        returns (int256[] memory series)
     {
         if (samples < MIN_SAMPLES || samples > MAX_SAMPLES) revert TooFewSamples(samples);
         if (endTime > block.timestamp) revert FutureWindow();
@@ -150,10 +155,10 @@ contract UniV3Observer is IPriceObserver {
 
         (int56[] memory tickCumulatives,) = IUniswapV3PoolOracle(source).observe(secondsAgos);
 
-        ticks = new int256[](samples);
+        series = new int256[](samples);
         for (uint256 i = 0; i < samples; ++i) {
             uint32 dt = i == 0 ? windowSeconds - (samples - 1) * step : step;
-            ticks[i] = (int256(tickCumulatives[i + 1]) - int256(tickCumulatives[i])) / int256(uint256(dt));
+            series[i] = (int256(tickCumulatives[i + 1]) - int256(tickCumulatives[i])) / int256(uint256(dt));
         }
     }
 }
