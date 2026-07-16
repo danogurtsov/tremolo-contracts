@@ -551,15 +551,30 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
             return _void(seriesId, s, VoidReason.SOURCE_REVERTED);
         }
 
-        try IPriceObserver(s.observer).sampleTicks(s.source, uint32(s.expiry), window, s.samples) returns (
-            int256[] memory ticks
+        try IPriceObserver(s.observer).sampleSeries(s.source, uint32(s.expiry), window, s.samples) returns (
+            int256[] memory series
         ) {
-            s.realizedVariance = VarianceMath.fromTicks(ticks, window);
+            // The adapter declares its own scale. Tick series difference exactly; price series
+            // need a logarithm whose error enters the result squared, which is why tick sources
+            // are preferred and why the distinction is explicit rather than assumed.
+            s.realizedVariance = IPriceObserver(s.observer).seriesKind() == IPriceObserver.SeriesKind.TICKS
+                ? VarianceMath.fromTicks(series, window)
+                : VarianceMath.fromPrices(_toUnsigned(series), window);
             s.state = State.SETTLED;
             emit SeriesSettled(seriesId, s.realizedVariance, msg.sender);
             return State.SETTLED;
         } catch {
             return _void(seriesId, s, VoidReason.SOURCE_REVERTED);
+        }
+    }
+
+    /// @dev Price series are non-negative by construction; the shared `int256[]` return type is
+    ///      what lets one interface carry both scales.
+    function _toUnsigned(int256[] memory a) internal pure returns (uint256[] memory out) {
+        out = new uint256[](a.length);
+        for (uint256 i = 0; i < a.length; ++i) {
+            if (a[i] < 0) revert NegativePrice(a[i]);
+            out[i] = uint256(a[i]);
         }
     }
 

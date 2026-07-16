@@ -67,6 +67,7 @@ src/
   RFQSettlement.sol         EIP-712 quotes: price discovery and entry on demand
   libraries/VarianceMath    the calculation and the settlement identities
   observers/UniV3Observer   rebuilds a tick series from a Uniswap V3 buffer
+  observers/ChainlinkObserver  price series from an aggregator's rounds (2.7x the gas)
   types/Variance.sol        user-defined type: variance is not volatility
   interfaces/  mocks/
 test/

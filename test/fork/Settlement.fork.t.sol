@@ -18,6 +18,11 @@ import {Variance} from "../../src/types/Variance.sol";
 ///      `vm.warp` alone could not do this: it moves the clock but leaves the pool frozen, so
 ///      settlement would read a buffer that never advanced.
 ///
+///      The series is opened with `openImmediate`, which exists for RFQ fills but fits here
+///      exactly: the activation deadline means a series created on the early block could not
+///      still be activated eight hours later on the destination block — and correctly so, since
+///      by then the measurement window has been running unattended.
+///
 ///      Two constraints of `rollFork` shape the setup, both discovered the hard way:
 ///
 ///        - contracts deployed inside the test disappear across the roll unless marked with
@@ -75,6 +80,22 @@ contract SettlementForkTest is Test {
         usdc.approve(address(market), type(uint256).max);
     }
 
+    /// @dev Window is sized to fit inside the gap between the two fork blocks.
+    function _params() internal view returns (IVarianceMarket.SeriesParams memory) {
+        return IVarianceMarket.SeriesParams({
+            observer: address(observer),
+            source: POOL,
+            collateral: address(usdc),
+            startTime: 0, // set to now by openImmediate
+            expiry: uint64(block.timestamp + WINDOW),
+            samples: SAMPLES,
+            minCompletenessBps: 8000,
+            capMultiple: CAP,
+            strike: STRIKE,
+            notionalPerUnit: NOTIONAL
+        });
+    }
+
     modifier onFork() {
         if (!forked) {
             vm.skip(true);
@@ -85,27 +106,8 @@ contract SettlementForkTest is Test {
 
     /// @notice Create, subscribe, live through six real hours, settle, redeem.
     function test_fullLifecycleAcrossRealTime() public onFork {
-        uint64 startTime = uint64(block.timestamp + 30 minutes);
-        uint256 id = market.createSeries(
-            IVarianceMarket.SeriesParams({
-                observer: address(observer),
-                source: POOL,
-                collateral: address(usdc),
-                startTime: startTime,
-                expiry: startTime + WINDOW,
-                samples: SAMPLES,
-                minCompletenessBps: 8000,
-                capMultiple: CAP,
-                strike: STRIKE,
-                notionalPerUnit: NOTIONAL
-            })
-        );
-
         uint256 units = 10e18;
-        vm.prank(longSide);
-        market.subscribe(id, IVarianceMarket.Side.LONG, units);
-        vm.prank(shortSide);
-        market.subscribe(id, IVarianceMarket.Side.SHORT, units);
+        uint256 id = market.openImmediate(_params(), longSide, shortSide, units);
 
         uint256 pot = usdc.balanceOf(address(market));
         assertEq(pot, 1000e6, "pot should be notional * cap * K * units = 10 * 100 USDC");
@@ -113,11 +115,7 @@ contract SettlementForkTest is Test {
         // Forward to a block after expiry. The pool traded through the whole window while this
         // test did nothing at all — which is the entire point of the design.
         vm.rollFork(BLOCK_END);
-        assertGt(block.timestamp, startTime + WINDOW, "fork did not span the window");
-
-        market.activate(id);
-        market.mintPositions(id, IVarianceMarket.Side.LONG, longSide);
-        market.mintPositions(id, IVarianceMarket.Side.SHORT, shortSide);
+        assertGt(block.timestamp, market.getSeries(id).expiry, "fork did not span the window");
 
         IVarianceMarket.State state = market.settle(id);
         assertEq(uint8(state), uint8(IVarianceMarket.State.SETTLED), "real pool failed to settle");
@@ -146,32 +144,10 @@ contract SettlementForkTest is Test {
     ///      pins the direction and the magnitude against the strike, using only the series
     ///      parameters — the sort of arithmetic a counterparty would do before signing.
     function test_payoutFollowsRealizedVolatility() public onFork {
-        uint64 startTime = uint64(block.timestamp + 30 minutes);
-        uint256 id = market.createSeries(
-            IVarianceMarket.SeriesParams({
-                observer: address(observer),
-                source: POOL,
-                collateral: address(usdc),
-                startTime: startTime,
-                expiry: startTime + WINDOW,
-                samples: SAMPLES,
-                minCompletenessBps: 8000,
-                capMultiple: CAP,
-                strike: STRIKE,
-                notionalPerUnit: NOTIONAL
-            })
-        );
-
         uint256 units = 1e18;
-        vm.prank(longSide);
-        market.subscribe(id, IVarianceMarket.Side.LONG, units);
-        vm.prank(shortSide);
-        market.subscribe(id, IVarianceMarket.Side.SHORT, units);
+        uint256 id = market.openImmediate(_params(), longSide, shortSide, units);
 
         vm.rollFork(BLOCK_END);
-        market.activate(id);
-        market.mintPositions(id, IVarianceMarket.Side.LONG, longSide);
-        market.mintPositions(id, IVarianceMarket.Side.SHORT, shortSide);
         market.settle(id);
 
         uint256 rv = Variance.unwrap(market.getSeries(id).realizedVariance);
@@ -204,9 +180,9 @@ contract SettlementForkTest is Test {
         vm.rollFork(BLOCK_END);
         for (uint256 i = 0; i < grids.length; ++i) {
             uint256 before = gasleft();
-            observer.sampleTicks(POOL, uint32(block.timestamp), WINDOW, grids[i]);
+            observer.sampleSeries(POOL, uint32(block.timestamp), WINDOW, grids[i]);
             uint256 used = before - gasleft();
-            console2.log("sampleTicks grid / gas", grids[i], used);
+            console2.log("sampleSeries grid / gas", grids[i], used);
 
             // Every permitted grid must stay a small fraction of a block. Base's limit is
             // 400M, so 10M is ~2.5% — affordable, and still affordable if the pool's history

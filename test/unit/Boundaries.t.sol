@@ -171,7 +171,7 @@ contract BoundariesTest is Test {
         MockUniV3Pool pool = new MockUniV3Pool(200_000, 64, uint32(block.timestamp - 2 days));
 
         vm.expectRevert(UniV3Observer.FutureWindow.selector);
-        obs.sampleTicks(address(pool), uint32(block.timestamp + 1), 1 hours, 12);
+        obs.sampleSeries(address(pool), uint32(block.timestamp + 1), 1 hours, 12);
     }
 
     function test_observer_rejectsZeroWindow() public {
@@ -179,7 +179,7 @@ contract BoundariesTest is Test {
         MockUniV3Pool pool = new MockUniV3Pool(200_000, 64, uint32(block.timestamp - 2 days));
 
         vm.expectRevert(abi.encodeWithSelector(UniV3Observer.WindowTooLong.selector, uint32(0)));
-        obs.sampleTicks(address(pool), uint32(block.timestamp), 0, 12);
+        obs.sampleSeries(address(pool), uint32(block.timestamp), 0, 12);
     }
 
     function test_observer_rejectsWindowOverAYear() public {
@@ -188,7 +188,7 @@ contract BoundariesTest is Test {
 
         uint32 tooLong = uint32(366 days);
         vm.expectRevert(abi.encodeWithSelector(UniV3Observer.WindowTooLong.selector, tooLong));
-        obs.sampleTicks(address(pool), uint32(block.timestamp), tooLong, 12);
+        obs.sampleSeries(address(pool), uint32(block.timestamp), tooLong, 12);
     }
 
     /// @notice Exactly MAX_SAMPLES is accepted; one more is not.

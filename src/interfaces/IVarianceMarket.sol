@@ -148,6 +148,7 @@ interface IVarianceMarket {
     error ObserverHasNoCode(address observer);
     error ActivationWindowClosed();
     error CollateralShortfall(uint256 expected, uint256 received);
+    error NegativePrice(int256 value);
 
     // =====================================================================
     // Functions

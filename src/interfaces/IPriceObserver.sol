@@ -23,6 +23,27 @@ pragma solidity ^0.8.28;
 ///          smooth and therefore biases realized variance downward. Settlement refuses to
 ///          produce a number when a window is too sparse, and this is how it knows.
 interface IPriceObserver {
+    /// @notice How to read the numbers `sampleSeries` returns.
+    /// @dev Added when a second adapter was written, which is the point of writing one. The
+    ///      original interface returned "ticks" because the only implementation had ticks, and a
+    ///      tick is a base-1.0001 logarithm — free to difference, no logarithm on chain.
+    ///
+    ///      A push feed reports prices. Forcing those into ticks means taking a logarithm and
+    ///      rounding to an integer tick, which discards up to a full basis point per sample. On
+    ///      a four-minute grid, typical moves are a few ticks, so that rounding is a large share
+    ///      of the signal — the abstraction would have quietly destroyed the measurement.
+    ///
+    ///      So the adapter declares its scale and the market picks the matching maths.
+    enum SeriesKind {
+        /// @dev Base-1.0001 logarithms. Differences are exact; no logarithm is evaluated.
+        TICKS,
+        /// @dev WAD-scaled prices. Requires `lnWad`, whose error enters squared.
+        PRICES_WAD
+    }
+
+    /// @notice Which of the two the adapter produces.
+    function seriesKind() external pure returns (SeriesKind);
+
     /// @notice Human-readable source kind, e.g. "uniswap-v3-twap".
     function kind() external pure returns (string memory);
 
@@ -45,14 +66,14 @@ interface IPriceObserver {
     /// @param endTime Right edge of the window, inclusive.
     /// @param windowSeconds Window length.
     /// @param samples Number of points to return; must be >= 2.
-    /// @return ticks Series of average ticks, oldest first, length `samples`.
-    /// @dev A tick is a base-1.0001 logarithm of price, so consumers can take differences
-    ///      directly and never touch a logarithm. Reverts if the source cannot cover the
-    ///      window rather than returning a degraded series.
-    function sampleTicks(address source, uint32 endTime, uint32 windowSeconds, uint16 samples)
+    /// @return series Observations, oldest first, length `samples`, in the adapter's own scale
+    ///         as declared by `seriesKind`.
+    /// @dev Reverts if the source cannot cover the window rather than returning a degraded
+    ///      series. A short series is worse than no series: it settles on an artefact.
+    function sampleSeries(address source, uint32 endTime, uint32 windowSeconds, uint16 samples)
         external
         view
-        returns (int256[] memory ticks);
+        returns (int256[] memory series);
 
     /// @notice Reverts unless `source` can support a series with this window and grid.
     /// @dev Called at creation. Cheaper to fail here than to discover the gap at settlement,
