@@ -41,6 +41,29 @@ jobs:
       - name: Tests, fuzz and invariants
         run: forge test -vv
 
+      # Proves the deployment path still works against a live chain's state, which no unit
+      # test covers: constructor ordering, guardian wiring, and whether the target pool can
+      # actually support the series the script opens.
+      - name: Deployment dry run
+        run: forge script script/Deploy.s.sol --fork-url base
+
+  verification:
+    name: symbolic proofs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+      - name: Install halmos
+        run: pip install halmos
+      # Only the properties that discharge; the four that do not are documented in
+      # docs/measurements/formal_verification.md rather than reported as passing.
+      - name: Prove core arithmetic
+        run: halmos --match-contract VarianceMathSymbolicTest --solver-timeout-assertion 60000
+
   static-analysis:
     name: slither
     runs-on: ubuntu-latest
