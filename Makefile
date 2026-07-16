@@ -1,4 +1,4 @@
-.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage mutate bias verify slither
+.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage mutate bias verify slither deploy-dry
 
 help:
 	@echo "make build      - compile contracts"
@@ -14,6 +14,7 @@ help:
 	@echo "make slither    - static analysis"
 	@echo "make mutate     - mutation testing"
 	@echo "make bias       - measure grid bias against live pools"
+	@echo "make deploy-dry - run the deploy script against a Base fork"
 
 build:
 	forge build
@@ -50,6 +51,10 @@ verify:
 
 slither:
 	slither . --config-file slither.config.json
+
+# A deploy script that has never executed is a file, not a script. This runs in CI.
+deploy-dry:
+	forge script script/Deploy.s.sol --fork-url base
 
 # Does the suite actually catch anything? Line coverage cannot answer that.
 mutate:
