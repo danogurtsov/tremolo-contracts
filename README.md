@@ -112,6 +112,27 @@ Property 6 is the design in one line, and the reason property 3 can hold without
 Property 4 is what a singleton has to earn: a contract-wide balance check nets a leak between
 two series out to zero and sees nothing, so isolation is stated per series or not at all.
 
+## What manipulation costs
+
+Measured by carrying it out, against the real pool on a fork:
+
+| Attack | Spend | Effect on the settled number |
+|---|---|---|
+| $1M pushed and reversed in one block | $986 in fees | **0 bps** — a two-second excursion inside a fifteen-minute average |
+| $1M pushed and **held five minutes** | $1M committed | **15.7x** — pays for itself above ~$1.5M of notional |
+
+The first line is the design working. The second is the design's actual limit, and it is stated
+rather than buried: **a time-weighted average is not manipulation-proof, it is manipulation-
+priced.** The held-price figure is also a lower bound — on a fork nobody arbitrages the price
+back, and on a live chain holding a 6% dislocation on the deepest ETH pool means absorbing every
+arbitrage trade aimed at it.
+
+The defence that follows is a cap on notional per series relative to source depth. It is
+**not yet implemented**, and it is the first item in [THREAT_MODEL.md](THREAT_MODEL.md)'s gap
+list for that reason.
+
+Full numbers: [manipulation_cost.md](docs/measurements/manipulation_cost.md)
+
 ## Known limitations of the measurement
 
 Between two genuine recordings, Uniswap interpolates linearly. A dense grid over a quiet pool
