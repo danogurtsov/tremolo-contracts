@@ -108,6 +108,27 @@ Property 6 is why property 3 can hold without liquidations. Property 4 exists be
 contract-wide balance check would net a leak between two series out to zero and see nothing,
 so isolation has to be stated per series.
 
+## What manipulation costs
+
+Measured by carrying it out, against the real pool on a fork:
+
+| Attack | Spend | Effect on the settled number |
+|---|---|---|
+| $1M pushed and reversed in one block | $986 in fees | **0 bps** — a two-second excursion inside a fifteen-minute average |
+| $1M pushed and **held five minutes** | $1M committed | **15.7x** — pays for itself above ~$1.5M of notional |
+
+The first line is the flash attack failing. The second is the real limit: a time-weighted
+average makes manipulation expensive, not impossible. The held-price figure is also a lower
+bound — on a fork nobody arbitrages the price
+back, and on a live chain holding a 6% dislocation on the deepest ETH pool means absorbing every
+arbitrage trade aimed at it.
+
+The defence that follows is a cap on notional per series relative to source depth. It is
+**not yet implemented**, and it is the first item in [THREAT_MODEL.md](THREAT_MODEL.md)'s gap
+list for that reason.
+
+Full numbers: [manipulation_cost.md](docs/measurements/manipulation_cost.md)
+
 ## Known limitations of the measurement
 
 Between two genuine recordings, Uniswap interpolates linearly. A dense grid over a quiet pool
