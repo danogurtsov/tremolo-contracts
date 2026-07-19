@@ -1,4 +1,4 @@
-.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage mutate bias verify slither deploy-dry
+.PHONY: help build test fuzz ci fmt lint snapshot reference clean coverage mutate bias backtest verify slither deploy-dry
 
 help:
 	@echo "make build      - compile contracts"
@@ -15,6 +15,7 @@ help:
 	@echo "make mutate     - mutation testing"
 	@echo "make bias       - measure grid bias against live pools"
 	@echo "make deploy-dry - run the deploy script against a Base fork"
+	@echo "make backtest   - replay the instrument over real history"
 
 build:
 	forge build
@@ -63,6 +64,10 @@ mutate:
 # How much variance the TWAP grid destroys, against live pools.
 bias:
 	python3 reference/bias_measurement.py
+
+# Would either side have made money? Replays settlement over real history.
+backtest:
+	python3 reference/backtest.py
 
 clean:
 	forge clean
