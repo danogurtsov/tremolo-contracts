@@ -24,6 +24,30 @@ contract MockUniV3Pool is IUniswapV3PoolOracle {
 
     bool public reverting;
 
+    /// @dev In-range liquidity and price, settable so tests can express "deep pool" and "thin
+    ///      pool" without needing real positions. Defaults are the live WETH/USDC 0.05% pool on
+    ///      Base at block 49,000,000 — a mock that reported zero here would make every
+    ///      depth-derived limit vacuous, which is how the first version of this slipped through.
+    uint128 public liquidity = 1_162_333_074_342_542_576;
+    uint160 public sqrtPriceX96 = 3_476_064_473_772_736_619_908_307;
+
+    function setLiquidity(uint128 v) external {
+        liquidity = v;
+    }
+
+    function setSqrtPriceX96(uint160 v) external {
+        sqrtPriceX96 = v;
+    }
+
+    /// @dev Defaults to address(0), which tests override when they want the depth cap to apply.
+    address public token0;
+    address public token1;
+
+    function setTokens(address t0, address t1) external {
+        token0 = t0;
+        token1 = t1;
+    }
+
     error OldObservation();
     error PoolReverted();
 
@@ -63,7 +87,7 @@ contract MockUniV3Pool is IUniswapV3PoolOracle {
     }
 
     function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) {
-        return (0, currentTick, index, cardinality, cardinalityNext, 0, true);
+        return (sqrtPriceX96, currentTick, index, cardinality, cardinalityNext, 0, true);
     }
 
     function observations(uint256 i) external view returns (uint32, int56, uint160, bool) {

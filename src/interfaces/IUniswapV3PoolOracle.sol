@@ -38,5 +38,13 @@ interface IUniswapV3PoolOracle {
         view
         returns (int56[] memory tickCumulatives, uint160[] memory secondsPerLiquidityCumulativeX128s);
 
+    function token0() external view returns (address);
+
+    /// @notice The token prices are quoted in: price is token1 per token0.
+    function token1() external view returns (address);
+
+    /// @notice Liquidity currently in range. Used to price how far a given size moves the pool.
+    function liquidity() external view returns (uint128);
+
     function increaseObservationCardinalityNext(uint16 observationCardinalityNext) external;
 }

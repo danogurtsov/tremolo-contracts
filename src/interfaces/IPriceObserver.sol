@@ -74,6 +74,30 @@ interface IPriceObserver {
         view
         returns (int256[] memory series);
 
+    /// @notice Quote-token size that moves this source's price by one percent.
+    ///
+    /// @dev The unit in which manipulation is priced. Measured on the real pool, moving the
+    ///      price is cheap: $1M shifts the deepest ETH pool on Base by 6.4% for $986 in fees.
+    ///      What makes the attack unprofitable is the bound on the position it could pay off.
+    ///      The break-even is a ratio between notional and depth, and this is the denominator.
+    ///
+    ///      Returns `type(uint256).max` for sources with no on-chain depth to speak of, meaning
+    ///      the bound does not apply to this source; such a source has different risks,
+    ///      addressed elsewhere.
+    function depthQuote(address source) external view returns (uint256);
+
+    /// @notice The token `depthQuote` is denominated in.
+    ///
+    /// @dev Needed because a depth figure and a notional figure are only comparable when they are
+    ///      the same asset. Depth is quoted in the source's own quote token; notional is in the
+    ///      series' collateral. Comparing $254k of pool depth against 100 units of an unrelated
+    ///      18-decimal token is a category error, and a trivial way around the cap: denominate
+    ///      the series in whatever token makes the number look small.
+    ///
+    ///      Returns `address(0)` when the source has no on-chain depth, in which case the cap
+    ///      does not apply at all.
+    function quoteToken(address source) external view returns (address);
+
     /// @notice Reverts unless `source` can support a series with this window and grid.
     /// @dev Called at creation. Cheaper to fail here than to discover the gap at settlement,
     ///      when the money is already committed.

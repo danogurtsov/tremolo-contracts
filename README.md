@@ -123,9 +123,10 @@ bound — on a fork nobody arbitrages the price
 back, and on a live chain holding a 6% dislocation on the deepest ETH pool means absorbing every
 arbitrage trade aimed at it.
 
-The defence that follows is a cap on notional per series relative to source depth. It is
-**not yet implemented**, and it is the first item in [THREAT_MODEL.md](THREAT_MODEL.md)'s gap
-list for that reason.
+The defence is a cap on notional per series relative to source depth: a series may not write
+more notional than moving its source one percent would cost — about **$254k** on the target
+pool. It binds on aggregate size rather than per call, and collateral must be the token the
+source quotes in, so the cap cannot be sidestepped by denominating a series in something else.
 
 Full numbers: [manipulation_cost.md](docs/measurements/manipulation_cost.md)
 

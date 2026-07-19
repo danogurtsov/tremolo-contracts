@@ -73,6 +73,25 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     ///      Cancelling avoids that.
     uint32 internal constant ACTIVATION_GRACE = 1 hours;
 
+    /// @dev Ceiling on a series' total variance notional, as a fraction of what it costs to move
+    ///      its source's price by one percent.
+    ///
+    ///      This exists because a large enough series makes manipulating its source pay.
+    ///      Measured on the live
+    ///      WETH/USDC pool: holding the price 6% away for a third of one grid step multiplies
+    ///      settled variance by 15.7x, and pays for itself against any long position above
+    ///      roughly $1.5M — against a source where a 1% move costs about $161k. The break-even is
+    ///      a *ratio* between notional and depth, so the defence has to be one too.
+    ///
+    ///      Set at 1x: a series may write notional up to the cost of a 1% move in its source.
+    ///      With the measured figures that leaves the cheapest profitable attack roughly an order
+    ///      of magnitude out of the money, before counting arbitrage, which the measurement
+    ///      excluded and which dominates the real cost.
+    ///
+    ///      It is a constant rather than a parameter on purpose. A per-series limit would be set
+    ///      by whoever creates the series, which is whoever would benefit from setting it wrong.
+    uint256 internal constant MAX_NOTIONAL_TO_DEPTH_BPS = 10_000;
+
     /// @dev Positions are denominated in WAD, so a "unit" is 1e18. Pro-rata matching cannot
     ///      be exact over indivisible units, and the gap comes out of solvency. See the note
     ///      on `mintPositions`.
@@ -234,6 +253,14 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         // time and capital for the length of the window.
         if (p.observer.code.length == 0) revert ObserverHasNoCode(p.observer);
 
+        // Collateral must be the token the source quotes in, so that the notional cap compares
+        // like with like. Without this, a series could dodge the cap entirely by denominating
+        // itself in an unrelated token whose units happen to look small next to pool depth.
+        address quote = IPriceObserver(p.observer).quoteToken(p.source);
+        if (quote != address(0) && quote != p.collateral) {
+            revert CollateralNotQuoteToken(p.collateral, quote);
+        }
+
         // The source must be able to answer for this window, checked before anyone commits
         // money rather than discovered at settlement.
         IPriceObserver(p.observer).validateSource(p.source, window, p.samples);
@@ -297,6 +324,8 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
 
         emit SeriesCreated(seriesId, q.observer, q.source, q.collateral, q.strike, q.startTime, q.expiry);
 
+        _checkDepthLimit(seriesId, units);
+
         _pullCollateral(seriesId, Side.LONG, longSide, units);
         _pullCollateral(seriesId, Side.SHORT, shortSide, units);
 
@@ -306,6 +335,27 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         emit SeriesActivated(seriesId, units, units, units);
         emit PositionsMinted(seriesId, Side.LONG, longSide, units, 0);
         emit PositionsMinted(seriesId, Side.SHORT, shortSide, units, 0);
+    }
+
+    /// @dev Rejects a series that has grown large enough for manipulating its source to pay.
+    ///
+    ///      An observer with no on-chain depth returns `type(uint256).max` and the check passes:
+    ///      a push feed cannot be moved by trading against it, so sizing is not the defence
+    ///      there. A source reporting zero depth is rejected outright — a pool with no liquidity
+    ///      in range prices nothing.
+    function _checkDepthLimit(uint256 seriesId, uint256 units) internal view {
+        Series storage s = _series[seriesId];
+
+        // Only comparable when depth and notional are the same asset; `createSeries` enforces
+        // that, so reaching here with a mismatch is impossible.
+        if (IPriceObserver(s.observer).quoteToken(s.source) != s.collateral) return;
+
+        uint256 depth = IPriceObserver(s.observer).depthQuote(s.source);
+        if (depth == type(uint256).max) return;
+
+        uint256 limit = depth * MAX_NOTIONAL_TO_DEPTH_BPS / BPS;
+        uint256 notional = FixedPointMathLib.fullMulDiv(units, s.notionalPerUnit, WAD);
+        if (notional > limit) revert ExceedsDepthLimit(notional, limit);
     }
 
     /// @dev Shared with `subscribe`: takes collateral and refuses anything that arrives short.
@@ -337,6 +387,10 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         _subscribed[seriesId][uint8(side)][msg.sender] += units;
         if (side == Side.LONG) s.subscribedLong += units;
         else s.subscribedShort += units;
+
+        // Checked against the side being added, so the cap binds on whichever side grows past
+        // it. Matching takes the minimum of the two, so bounding each bounds the matched size.
+        _checkDepthLimit(seriesId, side == Side.LONG ? s.subscribedLong : s.subscribedShort);
         _collateralHeld[seriesId] += amount;
 
         // Credit only what actually arrived. A fee-on-transfer token would otherwise let a
