@@ -149,6 +149,8 @@ interface IVarianceMarket {
     error ActivationWindowClosed();
     error CollateralShortfall(uint256 expected, uint256 received);
     error NegativePrice(int256 value);
+    error ExceedsDepthLimit(uint256 requested, uint256 limit);
+    error CollateralNotQuoteToken(address collateral, address expected);
 
     // =====================================================================
     // Functions

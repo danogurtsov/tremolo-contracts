@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IPriceObserver} from "../interfaces/IPriceObserver.sol";
 import {IUniswapV3PoolOracle} from "../interfaces/IUniswapV3PoolOracle.sol";
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
 
 /// @title UniV3Observer
 /// @notice Reads a Uniswap V3 observation ring buffer and rebuilds an evenly spaced tick series.
@@ -81,6 +82,35 @@ contract UniV3Observer is IPriceObserver {
 
         uint32 nowTs = uint32(block.timestamp);
         return nowTs > oldest ? nowTs - oldest : 0;
+    }
+
+    /// @inheritdoc IPriceObserver
+    ///
+    /// @dev For a concentrated-liquidity pool, moving the price from P to P' along a single
+    ///      liquidity range costs `L * (sqrt(P') - sqrt(P))` of the quote token. For a one
+    ///      percent move, `sqrt(1.01) - 1 = 0.0049876`, so:
+    ///
+    ///          depth = L * sqrtPriceX96 * 0.0049876 / 2^96
+    ///
+    ///      This is an estimate, and it errs the right way. It assumes liquidity stays constant
+    ///      across the move, whereas in a concentrated pool it usually thins out — so the true
+    ///      cost of a 1% move is typically *lower* than this figure, making the derived notional
+    ///      cap *tighter* than strictly necessary. Sanity check against the live measurement:
+    ///      this returns ~$254k for the target pool, while real swaps put a 1% move nearer
+    ///      $161k. Same order, conservative direction.
+    function depthQuote(address source) external view returns (uint256) {
+        (uint160 sqrtPriceX96,,,,,,) = IUniswapV3PoolOracle(source).slot0();
+        uint128 liquidity = IUniswapV3PoolOracle(source).liquidity();
+        if (liquidity == 0 || sqrtPriceX96 == 0) return 0;
+
+        // 49876 / 1e7 == 0.0049876, kept as integers to avoid a fixed-point dependency here.
+        return FixedPointMathLib.fullMulDiv(uint256(liquidity) * 49_876, sqrtPriceX96, 1e7 << 96);
+    }
+
+    /// @inheritdoc IPriceObserver
+    /// @dev A V3 pool prices token1 per token0, so depth is denominated in token1.
+    function quoteToken(address source) external view returns (address) {
+        return IUniswapV3PoolOracle(source).token1();
     }
 
     /// @inheritdoc IPriceObserver

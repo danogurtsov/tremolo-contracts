@@ -7,7 +7,6 @@ import {console2} from "forge-std/console2.sol";
 import {VarianceMarket} from "../../src/VarianceMarket.sol";
 import {IVarianceMarket} from "../../src/interfaces/IVarianceMarket.sol";
 import {UniV3Observer} from "../../src/observers/UniV3Observer.sol";
-import {MockERC20} from "../../src/mocks/MockERC20.sol";
 import {Variance} from "../../src/types/Variance.sol";
 
 /// @notice A series that lives through real time, on a real pool, with a real token.
@@ -28,13 +27,18 @@ import {Variance} from "../../src/types/Variance.sol";
 ///        - contracts deployed inside the test disappear across the roll unless marked with
 ///          `vm.makePersistent`. Without it the market and the observer become empty addresses
 ///          and every call reverts with "call to non-contract address".
-///        - state of *real* contracts is re-read from the destination block, so collateral
-///          balances created with `deal` on the real USDC would silently vanish mid-test.
-///          Collateral is therefore a token this test deploys and keeps persistent. The pool,
-///          the price history and the passage of time are all real, which is what matters here;
-///          real-token behaviour is covered separately by the hostile-token suite.
+///        - state of *real* contracts is re-read from the destination block, so balances created
+///          with `deal` would vanish mid-test — unless the token is marked persistent too, which
+///          it now is. Collateral is the actual USDC contract on Base, because the market
+///          requires collateral to be the token its source quotes in, and this pool quotes USDC.
+interface IERC20 {
+    function approve(address, uint256) external returns (bool);
+    function balanceOf(address) external view returns (uint256);
+}
+
 contract SettlementForkTest is Test {
     address internal constant POOL = 0xd0b53D9277642d899DF5C87A3966A349A798F224;
+    address internal constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
     /// @dev 30 000 seconds of real Base history separate these blocks (~8h20m).
     uint256 internal constant BLOCK_START = 48_985_000;
@@ -48,7 +52,7 @@ contract SettlementForkTest is Test {
 
     VarianceMarket internal market;
     UniV3Observer internal observer;
-    MockERC20 internal usdc;
+    IERC20 internal usdc = IERC20(USDC);
 
     address internal longSide = makeAddr("longSide");
     address internal shortSide = makeAddr("shortSide");
@@ -65,15 +69,16 @@ contract SettlementForkTest is Test {
 
         observer = new UniV3Observer();
         market = new VarianceMarket(address(this));
-        usdc = new MockERC20("USD Coin", "USDC", 6);
 
-        // Survives the roll to the destination block, along with its storage.
+        // All three survive the roll along with their storage. USDC is a real contract, so
+        // without this its balances would be re-read from the destination block and the
+        // collateral posted here would simply cease to exist mid-test.
         vm.makePersistent(address(observer));
         vm.makePersistent(address(market));
-        vm.makePersistent(address(usdc));
+        vm.makePersistent(USDC);
 
-        usdc.mint(longSide, 1_000_000e6);
-        usdc.mint(shortSide, 1_000_000e6);
+        deal(USDC, longSide, 1_000_000e6);
+        deal(USDC, shortSide, 1_000_000e6);
         vm.prank(longSide);
         usdc.approve(address(market), type(uint256).max);
         vm.prank(shortSide);

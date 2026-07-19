@@ -78,6 +78,21 @@ contract ChainlinkObserver is IPriceObserver {
     }
 
     /// @inheritdoc IPriceObserver
+    /// @dev A feed has no on-chain depth: it cannot be moved by trading against it, because
+    ///      there is nothing to trade against. The notional bound therefore does not apply, and
+    ///      saying so is more honest than inventing a number. The corresponding risk is different
+    ///      in kind — corrupting a feed means corrupting its operators — and is not addressed by
+    ///      sizing.
+    function depthQuote(address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    /// @inheritdoc IPriceObserver
+    function quoteToken(address) external pure returns (address) {
+        return address(0);
+    }
+
+    /// @inheritdoc IPriceObserver
     /// @dev A feed has no notion of "an observation was recorded in this window" beyond its own
     ///      rounds, so this counts rounds. Note what that means for the completeness check: a
     ///      quiet feed genuinely has few rounds, and a series on it will void — which is the

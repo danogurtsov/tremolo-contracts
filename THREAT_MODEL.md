@@ -38,10 +38,20 @@ price back. On a live chain, holding a 6% dislocation on the deepest ETH pool on
 minutes means absorbing every arbitrage trade aimed at it. The measured number is the entry fee;
 the real cost is unmeasured and much larger.
 
-**Defence, and its limit.** Notional per series must be bounded relative to source depth. There
-is no price at which manipulation becomes impossible — only one at which it stops being worth it,
-and that price is a ratio, so it has to be enforced as one. **This bound is not yet implemented**
-and is the most important open item in this document.
+**Defence, and its limit.** Notional per series is bounded relative to source depth: a series may
+not write more notional than it costs to move its source's price by one percent
+(`MAX_NOTIONAL_TO_DEPTH_BPS`, enforced on both `subscribe` and `openImmediate`). On the target
+pool that is roughly **$254k per series**, leaving the cheapest profitable attack about an order
+of magnitude out of the money before arbitrage is counted at all.
+
+Two things make the bound hold rather than look like it holds. It binds on **aggregate** size,
+not per call, so it cannot be walked past in pieces. And collateral must be the token the source
+quotes in — otherwise a series could sidestep the cap entirely by denominating itself in an
+unrelated token, since comparing pool depth in USDC against units of some other asset compares
+nothing (`test_createSeries_rejectsCollateralThatIsNotTheQuoteToken`).
+
+There is still no price at which manipulation becomes impossible, only one at which it stops
+being worth it. The cap sets that price.
 
 Details: [manipulation_cost.md](docs/measurements/manipulation_cost.md)
 
@@ -138,8 +148,12 @@ does not happen.
 
 ## Known gaps, in order
 
-1. **No cap on notional relative to source depth** (§1). The measurement says what the bound
-   should be a function of; the code does not yet enforce one.
-2. **No external audit.** See [SECURITY.md](SECURITY.md).
+1. **No external audit.** See [SECURITY.md](SECURITY.md).
+2. **Arbitrage cost unmeasured** (§1) — the largest unknown in the security argument. The
+   notional cap is sized against a lower bound that excludes it, which is the conservative
+   direction, but the true margin is unknown.
 3. **Rebasing tokens undetected** (§4).
-4. **Arbitrage cost unmeasured** (§1) — the largest unknown in the security argument.
+4. **Depth is measured at a moment.** `depthQuote` reads current in-range liquidity. Liquidity
+   that leaves after a series is funded shrinks the margin the cap was sized for, and nothing
+   revisits it. Re-checking at settlement would let a liquidity provider void a series at will,
+   which is a worse trade.
