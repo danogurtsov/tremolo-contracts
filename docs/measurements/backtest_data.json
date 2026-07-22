@@ -1,0 +1,46 @@
+{
+  "results": [
+    {
+      "settlements": 40,
+      "windowSeconds": 21600,
+      "samples": 24,
+      "premium": 1.0,
+      "cap": 2.5,
+      "longWinRate": 0.35,
+      "cappedRate": 0.1,
+      "medianVolPct": 27.947732359051003,
+      "longMeanReturn": -0.010325107675667543,
+      "longMedianReturn": -0.3605327927480511,
+      "longWorst": -0.918008574437283,
+      "longBest": 1.5
+    },
+    {
+      "settlements": 40,
+      "windowSeconds": 21600,
+      "samples": 24,
+      "premium": 1.2,
+      "cap": 2.5,
+      "longWinRate": 0.325,
+      "cappedRate": 0.05,
+      "medianVolPct": 27.947732359051003,
+      "longMeanReturn": -0.14831014866636433,
+      "longMedianReturn": -0.4671106606233759,
+      "longWorst": -0.9316738120310692,
+      "longBest": 1.5
+    },
+    {
+      "settlements": 40,
+      "windowSeconds": 21600,
+      "samples": 24,
+      "premium": 1.5,
+      "cap": 2.5,
+      "longWinRate": 0.225,
+      "cappedRate": 0.05,
+      "medianVolPct": 27.947732359051003,
+      "longMeanReturn": -0.29364811893309145,
+      "longMedianReturn": -0.5736885284987008,
+      "longWorst": -0.9453390496248554,
+      "longBest": 1.5
+    }
+  ]
+}
