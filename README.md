@@ -134,6 +134,24 @@ source quotes in, so the cap cannot be sidestepped by denominating a series in s
 
 Full numbers: [manipulation_cost.md](docs/measurements/manipulation_cost.md)
 
+## Does it pay?
+
+Replayed over 226 390 real swaps, 40 rolling windows, strike from a trailing mean using no
+future information:
+
+| Strike | Long wins | Long mean P&L | Long median |
+|---|---|---|---|
+| fair (1.0×) | 35% | **−1.0%** | −36.1% |
+| 1.2× | 32% | −14.8% | −46.7% |
+| 1.5× | 22% | −29.4% | −57.4% |
+
+The shape is the one buying volatility is supposed to have: lose small often, win large rarely,
+roughly flat at a fair strike. The premium a seller earns above that is what gives a market
+maker a reason to quote — the precondition for the RFQ layer having anyone on the other side.
+
+**The sample is 11.5 days.** Enough to see the payoff behaves as designed, nowhere near enough
+to price it. Full caveats: [backtest.md](docs/measurements/backtest.md)
+
 ## Known limitations of the measurement
 
 Between two genuine recordings, Uniswap interpolates linearly. A dense grid over a quiet pool
