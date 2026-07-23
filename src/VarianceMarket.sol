@@ -184,6 +184,102 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         return totalCollateralPerUnit(seriesId) - long;
     }
 
+    /// @notice Variance realized so far, part-way through a live series.
+    ///
+    /// @dev Until this existed, a holder could not tell whether they were winning until the
+    ///      series expired — the settled number was written once, at the end, and nothing before
+    ///      it. That makes a portfolio view impossible and a margin module unbuildable.
+    ///
+    ///      It works because **variance is additive**: the sum of squared log returns over
+    ///      [start, now] plus the sum over [now, expiry] is the sum over the whole window, with
+    ///      no cross term. So the accrued part is simply the same calculation over a shorter
+    ///      window, on the same grid — no state, no accumulator, no keeper.
+    ///
+    ///      Sampled on complete grid steps only. A partial step would annualise a fraction of an
+    ///      interval and produce a number that jumps around as the step fills in; whole steps
+    ///      give a figure that only ever moves when there is new information in it.
+    ///
+    /// @return accrued Annualised variance over the elapsed part of the window.
+    /// @return elapsedSeconds Seconds covered by that figure.
+    /// @return stepsComplete Grid steps included.
+    function accruedVariance(uint256 seriesId)
+        public
+        view
+        returns (Variance accrued, uint32 elapsedSeconds, uint16 stepsComplete)
+    {
+        Series storage s = _series[seriesId];
+
+        // Once settled the answer is the settled number itself; recomputing it could disagree
+        // with what was paid out, and what was paid out is the truth.
+        if (s.state == State.SETTLED) {
+            return (s.realizedVariance, uint32(s.expiry - s.startTime), s.samples);
+        }
+        if (s.state == State.NONE || block.timestamp <= s.startTime) {
+            return (Variance.wrap(0), 0, 0);
+        }
+
+        uint32 window = uint32(s.expiry - s.startTime);
+        uint32 step = window / s.samples;
+        uint32 endTime = block.timestamp < s.expiry ? uint32(block.timestamp) : uint32(s.expiry);
+
+        stepsComplete = uint16((endTime - s.startTime) / step);
+        if (stepsComplete < 2) return (Variance.wrap(0), endTime - uint32(s.startTime), stepsComplete);
+
+        elapsedSeconds = uint32(stepsComplete) * step;
+
+        try IPriceObserver(s.observer).sampleSeries(
+            s.source, uint32(s.startTime) + elapsedSeconds, elapsedSeconds, stepsComplete
+        ) returns (int256[] memory series) {
+            accrued = IPriceObserver(s.observer).seriesKind() == IPriceObserver.SeriesKind.TICKS
+                ? VarianceMath.fromTicks(series, elapsedSeconds)
+                : VarianceMath.fromPrices(_toUnsigned(series), elapsedSeconds);
+        } catch {
+            // A source that cannot answer yet is not an error here — settlement decides that.
+            return (Variance.wrap(0), elapsedSeconds, stepsComplete);
+        }
+    }
+
+    /// @notice What one unit of a position is worth right now, given a view on the rest.
+    ///
+    /// @dev The other half of additivity. Expected variance at expiry is the time-weighted sum
+    ///      of what has been realized and what is expected over the remainder:
+    ///
+    ///          E[RV] = (elapsed * accrued + remaining * implied) / window
+    ///
+    ///      and the position is worth what it would pay at that number.
+    ///
+    ///      `impliedRemaining` is an **argument, not an oracle**. The protocol has no view on
+    ///      future volatility and deliberately does not acquire one: pulling an implied-vol feed
+    ///      into the core would drag oracle risk into a contract that currently has none, for a
+    ///      convenience. Callers supply their own number and own the consequences — which also
+    ///      means two parties can mark the same position differently, and should.
+    ///
+    ///      Note the units trap this walks into: an implied volatility taken from an off-chain
+    ///      venue is spot-based, while this instrument settles on a TWAP series that runs about
+    ///      a third lower (ADR-0007). Feeding one in unadjusted overvalues the long side.
+    function markToMarket(uint256 seriesId, Variance impliedRemaining, Side side)
+        external
+        view
+        returns (uint256 valuePerUnit)
+    {
+        Series storage s = _series[seriesId];
+        if (s.state == State.SETTLED || s.state == State.VOIDED) {
+            return payoutPerUnit(seriesId, side);
+        }
+
+        uint32 window = uint32(s.expiry - s.startTime);
+        (Variance accrued, uint32 elapsed,) = accruedVariance(seriesId);
+
+        uint256 expected = (
+            Variance.unwrap(accrued) * elapsed + Variance.unwrap(impliedRemaining) * (window - elapsed)
+        ) / window;
+
+        uint256 long = VarianceMath.longPayout(
+            Variance.wrap(expected), s.strike, s.capMultiple, s.notionalPerUnit
+        );
+        return side == Side.LONG ? long : totalCollateralPerUnit(seriesId) - long;
+    }
+
     // =====================================================================
     // Creation
     // =====================================================================
