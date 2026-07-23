@@ -176,4 +176,12 @@ interface IVarianceMarket {
     function tokenId(uint256 seriesId, Side side) external pure returns (uint256);
     function collateralPerUnit(uint256 seriesId, Side side) external view returns (uint256);
     function payoutPerUnit(uint256 seriesId, Side side) external view returns (uint256);
+    function accruedVariance(uint256 seriesId)
+        external
+        view
+        returns (Variance accrued, uint32 elapsedSeconds, uint16 stepsComplete);
+    function markToMarket(uint256 seriesId, Variance impliedRemaining, Side side)
+        external
+        view
+        returns (uint256 valuePerUnit);
 }

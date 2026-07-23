@@ -167,7 +167,31 @@ pools have the shortest memory. The target pool holds 32.5 hours at cardinality 
 series fits, a weekly one does not. Extending is permissionless and costs $0.33 per 1 000 slots
 on Base.
 
-## 7. Isolation between series
+## 7. Valuing a live position
+
+Variance is additive: the sum of squared log returns over `[start, now]` plus the sum over
+`[now, expiry]` is the sum over the whole window, with no cross term. So a live position can be
+read without any state, accumulator or keeper.
+
+```
+accruedVariance(id)          -> variance realized so far, over complete grid steps only
+markToMarket(id, implied, s) -> what one unit is worth, given a view on the remainder
+
+E[RV] = (elapsed * accrued + remaining * implied) / window
+```
+
+**Whole steps only.** A partial step would annualise a fraction of an interval, producing a
+figure that wobbles as the step fills.
+
+**`implied` is a caller-supplied argument.** The protocol has no view on future volatility:
+pulling an implied-vol feed into the core would import oracle risk into a contract that has
+none. Two parties can mark the same position differently.
+
+**Units trap.** An implied volatility from an off-chain venue is spot-based, while this
+instrument settles on a TWAP series running about a third lower (§6). Passing one in unadjusted
+overvalues the long side by roughly that much.
+
+## 8. Isolation between series
 
 One contract holds every series, so isolation is something the invariant suite has to prove. A series may only ever pay out its own collateral: `collateralHeld[id]` covers
 every claim against series `id` on its own, and per collateral token the sum over series equals
@@ -176,7 +200,7 @@ the contract's balance.
 Stated per series because a contract-wide check nets a leak between two series out to zero
 and sees nothing.
 
-## 8. Trust boundary
+## 9. Trust boundary
 
 The guardian may pause creation of **new** series. It cannot pause, alter, or delay `settle`,
 `redeem`, `net`, or `unsubscribe` on an existing series — there is no code path. Anyone already
