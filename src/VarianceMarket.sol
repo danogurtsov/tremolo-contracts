@@ -685,6 +685,11 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         Series storage s = _series[seriesId];
         if (s.state != State.ACTIVE) revert WrongState(s.state);
         if (block.timestamp < s.expiry) revert TooEarly();
+        return _settle(seriesId, s);
+    }
+
+    /// @dev The body, callable from `redeem` so that nobody has to be paid to run it.
+    function _settle(uint256 seriesId, Series storage s) internal returns (State) {
 
         uint32 window = uint32(s.expiry - s.startTime);
 
@@ -745,6 +750,18 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         returns (uint256 amount)
     {
         Series storage s = _series[seriesId];
+
+        // Settle on the way out if nobody has yet. Nothing pays a keeper to call `settle`, and
+        // adding a reward would have to come from somewhere: out of the pot, which breaks the
+        // identity the whole design rests on, or out of a fund that has to be filled and
+        // governed. Neither is necessary, because whoever is owed money already has every reason
+        // to spend the gas — and now, with `accruedVariance`, can see that they are owed it.
+        //
+        // Following Squeeth, which accrues its funding on any interaction rather than on a
+        // schedule. The public `settle` stays: an indexer or a losing side may still want the
+        // number fixed at a particular moment.
+        if (s.state == State.ACTIVE && block.timestamp >= s.expiry) _settle(seriesId, s);
+
         if (s.state != State.SETTLED && s.state != State.VOIDED) revert WrongState(s.state);
         if (units == 0) revert ZeroUnits();
 

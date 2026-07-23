@@ -165,4 +165,70 @@ contract ValuationTest is BaseTest {
             "a settled series ignores any implied view"
         );
     }
+
+    // ---------------------------------------------------------------------
+    // Settlement without a keeper
+    // ---------------------------------------------------------------------
+
+    /// @notice Redeeming an expired-but-unsettled series settles it on the way through.
+    /// @dev Nothing pays anyone to call `settle`, and nothing needs to: whoever is owed money
+    ///      has every reason to spend the gas. A reward would have to come out of the pot,
+    ///      breaking the identity the design rests on, or out of a fund somebody has to fill.
+    function test_redeem_settlesLazilyWhenNobodyDid() public {
+        uint256 id = openMatchedSeries(3e18);
+        fillPoolSawtooth(id, MOVE_CADENCE, 40);
+
+        // Expired, and nobody called settle.
+        assertEq(uint8(market.getSeries(id).state), uint8(IVarianceMarket.State.ACTIVE));
+
+        vm.prank(alice);
+        uint256 paid = market.redeem(id, IVarianceMarket.Side.LONG, 3e18, alice);
+
+        assertEq(uint8(market.getSeries(id).state), uint8(IVarianceMarket.State.SETTLED));
+        assertGt(paid, 0, "long realized above strike and should have been paid");
+    }
+
+    /// @notice The lazy path produces the same number as calling settle first.
+    function test_redeem_lazySettlementMatchesExplicit() public {
+        uint256 idA = openMatchedSeries(3e18);
+        fillPoolSawtooth(idA, MOVE_CADENCE, 40);
+
+        uint256 snapshot = vm.snapshotState();
+        market.settle(idA);
+        uint256 explicitPayout = market.payoutPerUnit(idA, IVarianceMarket.Side.LONG);
+        vm.revertToState(snapshot);
+
+        vm.prank(alice);
+        market.redeem(idA, IVarianceMarket.Side.LONG, 1e18, alice);
+
+        assertEq(
+            market.payoutPerUnit(idA, IVarianceMarket.Side.LONG), explicitPayout,
+            "settling lazily gave a different number than settling explicitly"
+        );
+    }
+
+    /// @notice Redeeming before expiry still reverts; laziness is not permissiveness.
+    function test_redeem_stillRejectsBeforeExpiry() public {
+        uint256 id = openMatchedSeries(3e18);
+        vm.warp(market.getSeries(id).startTime + 1 hours);
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(IVarianceMarket.WrongState.selector, IVarianceMarket.State.ACTIVE)
+        );
+        market.redeem(id, IVarianceMarket.Side.LONG, 1e18, alice);
+    }
+
+    /// @notice A series whose source died settles lazily to VOIDED and refunds.
+    function test_redeem_lazyPathVoidsABrokenSource() public {
+        uint256 id = openMatchedSeries(3e18);
+        fillPoolSawtooth(id, MOVE_CADENCE, 40);
+        pool.setReverting(true);
+
+        vm.prank(alice);
+        uint256 paid = market.redeem(id, IVarianceMarket.Side.LONG, 3e18, alice);
+
+        assertEq(uint8(market.getSeries(id).state), uint8(IVarianceMarket.State.VOIDED));
+        assertEq(paid, _valueOf(3e18, market.collateralPerUnit(id, IVarianceMarket.Side.LONG)));
+    }
 }
