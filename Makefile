@@ -20,6 +20,10 @@ help:
 build:
 	forge build
 
+# Deployable bytecode is always via_ir - smaller and cheaper to run. See ADR-0010.
+build-deploy:
+	FOUNDRY_PROFILE=ci forge build --sizes
+
 test:
 	forge test
 
@@ -55,7 +59,7 @@ slither:
 
 # A deploy script that has never executed is a file, not a script. This runs in CI.
 deploy-dry:
-	forge script script/Deploy.s.sol --fork-url base
+	FOUNDRY_PROFILE=ci forge script script/Deploy.s.sol --fork-url base
 
 # Does the suite actually catch anything? Line coverage cannot answer that.
 mutate:

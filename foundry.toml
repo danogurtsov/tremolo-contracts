@@ -9,7 +9,10 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 10_000
 bytecode_hash = "none"          # deterministic bytecode, cleaner verification (morpho-blue)
-via_ir = false                  # off locally: ~3x faster cycle. Enabled in the ci profile
+via_ir = false                  # off locally only: see ADR-0010. Every profile that produces
+                                # deployable bytecode turns it on, because it is both smaller
+                                # and cheaper - it costs 5x compile time, which only the local
+                                # edit-test loop cares about.
 
 gas_reports = ["*"]
 fs_permissions = [{ access = "read", path = "./test/fixtures" }]
@@ -40,6 +43,10 @@ shrink_run_limit = 5_000
 #   FOUNDRY_PROFILE=pr forge test  - before pushing
 #   FOUNDRY_PROFILE=ci forge test  - in CI, long run
 # ------------------------------------------------------------------
+# Pre-push: same bytecode that gets deployed, so a via_ir-only difference cannot reach main.
+[profile.pr]
+via_ir = true
+
 [profile.pr.fuzz]
 runs = 5_000
 

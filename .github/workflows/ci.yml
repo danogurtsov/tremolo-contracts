@@ -47,6 +47,11 @@ jobs:
       - name: Deployment dry run
         run: forge script script/Deploy.s.sol --fork-url base
 
+      # Bytecode has to fit, and the number that matters is the one from the profile that
+      # actually deploys. Checked explicitly because `--sizes` only warns, it does not fail.
+      - name: Contract sizes
+        run: forge build --sizes
+
   verification:
     name: symbolic proofs
     runs-on: ubuntu-latest
