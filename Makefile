@@ -37,8 +37,12 @@ ci:
 reference:
 	python3 reference/variance_reference.py
 
+# Fork tests are excluded: their gas depends on live chain state and would churn the file.
 snapshot:
-	forge snapshot --snap .gas-snapshot
+	forge snapshot --no-match-path "test/fork/*"
+
+snapshot-check:
+	forge snapshot --check --no-match-path "test/fork/*"
 
 fmt:
 	forge fmt

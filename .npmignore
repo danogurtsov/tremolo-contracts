@@ -1,0 +1,17 @@
+# Published for integrators: sources and the spec, nothing else. Mocks are excluded because a
+# package that ships test doubles invites someone to deploy one.
+lib/
+out/
+cache/
+test/
+script/
+tools/
+reference/
+audits/
+docs/measurements/
+broadcast/
+src/mocks/
+foundry.toml
+remappings.txt
+slither.config.json
+Makefile
