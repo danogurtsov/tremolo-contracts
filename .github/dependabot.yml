@@ -1,0 +1,8 @@
+version: 2
+updates:
+  # Actions only. Solidity dependencies are git submodules pinned to a commit, and bumping those
+  # is a decision about what the contracts compile against rather than a chore.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly

@@ -52,6 +52,11 @@ jobs:
       - name: Contract sizes
         run: forge build --sizes
 
+      # Gas regressions are silent otherwise. Run under the default profile, which is what the
+      # committed snapshot was taken with - the ci profile's fuzz counts would not match.
+      - name: Gas snapshot
+        run: FOUNDRY_PROFILE=default forge snapshot --check --no-match-path "test/fork/*"
+
   verification:
     name: symbolic proofs
     runs-on: ubuntu-latest
