@@ -8,6 +8,7 @@ import {VarianceMarket} from "../src/VarianceMarket.sol";
 import {RFQSettlement} from "../src/RFQSettlement.sol";
 import {UniV3Observer} from "../src/observers/UniV3Observer.sol";
 import {ChainlinkObserver} from "../src/observers/ChainlinkObserver.sol";
+import {RealizedVolatilityOracle} from "../src/RealizedVolatilityOracle.sol";
 import {IVarianceMarket} from "../src/interfaces/IVarianceMarket.sol";
 import {Variance} from "../src/types/Variance.sol";
 
@@ -43,7 +44,8 @@ contract Deploy is Script {
             VarianceMarket market,
             RFQSettlement rfq,
             UniV3Observer uniObserver,
-            ChainlinkObserver linkObserver
+            ChainlinkObserver linkObserver,
+            RealizedVolatilityOracle oracle
         )
     {
         address guardian = vm.envOr("GUARDIAN", msg.sender);
@@ -53,12 +55,14 @@ contract Deploy is Script {
         linkObserver = new ChainlinkObserver();
         market = new VarianceMarket(guardian);
         rfq = new RFQSettlement(market);
+        oracle = new RealizedVolatilityOracle();
         vm.stopBroadcast();
 
         console2.log("UniV3Observer     ", address(uniObserver));
         console2.log("ChainlinkObserver ", address(linkObserver));
         console2.log("VarianceMarket    ", address(market));
         console2.log("RFQSettlement     ", address(rfq));
+        console2.log("VolatilityOracle  ", address(oracle));
         console2.log("guardian          ", guardian);
 
         _seedSeries(market, uniObserver);
