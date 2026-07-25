@@ -136,6 +136,15 @@ contract UniV3Observer is IPriceObserver {
     }
 
     /// @inheritdoc IPriceObserver
+    /// @dev Permissionless on Uniswap's side: `increaseObservationCardinalityNext` takes payment
+    ///      in gas from whoever calls it and refuses to shrink, so there is nothing to guard
+    ///      here. Capacity appears immediately; the *history* to fill it accrues as the pool
+    ///      trades, which is why this returns nothing and callers re-read `maxLookback`.
+    function extendHistory(address source, uint16 targetObservations) external {
+        IUniswapV3PoolOracle(source).increaseObservationCardinalityNext(targetObservations);
+    }
+
+    /// @inheritdoc IPriceObserver
     function validateSource(address source, uint32 windowSeconds, uint16 samples) external view {
         if (samples < MIN_SAMPLES || samples > MAX_SAMPLES) revert TooFewSamples(samples);
 
