@@ -98,6 +98,18 @@ interface IPriceObserver {
     ///      does not apply at all.
     function quoteToken(address source) external view returns (address);
 
+    /// @notice Asks the source to remember more history, if it can be asked.
+    ///
+    /// @dev Uniswap's buffer is extended by anyone willing to pay for the storage, and this
+    ///      protocol treats doing so as part of operating it: the pools worth writing series
+    ///      on are exactly the pools whose memory is shortest. Measured cost: 22 244 gas per slot, so a thousand slots is about
+    ///      $0.33 on Base and buys roughly six more hours on a pool recording every 23 seconds.
+    ///
+    ///      A no-op for sources that cannot be extended, which is most of them. Callers should
+    ///      re-read `maxLookback` afterwards, because extension is not instant: Uniswap grows the buffer lazily as new observations are written, so
+    ///      capacity bought now becomes history later.
+    function extendHistory(address source, uint16 targetObservations) external;
+
     /// @notice Reverts unless `source` can support a series with this window and grid.
     /// @dev Called at creation. Cheaper to fail here than to discover the gap at settlement,
     ///      when the money is already committed.

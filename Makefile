@@ -61,6 +61,13 @@ verify:
 slither:
 	slither . --config-file slither.config.json
 
+# Buy a pool more observation history. The buffer paradox means the deepest pools forget
+# fastest, so this is an operating cost, not a workaround. ~$0.33 per 1000 slots on Base.
+#   make extend-history POOL=0x... OBSERVER=0x... TARGET=5000
+extend-history:
+	cast send $(OBSERVER) "extendHistory(address,uint16)" $(POOL) $(TARGET) \
+		--rpc-url base --private-key $$PRIVATE_KEY
+
 # A deploy script that has never executed is a file, not a script. This runs in CI.
 deploy-dry:
 	FOUNDRY_PROFILE=ci forge script script/Deploy.s.sol --fork-url base

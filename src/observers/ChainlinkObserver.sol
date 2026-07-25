@@ -87,6 +87,11 @@ contract ChainlinkObserver is IPriceObserver {
     }
 
     /// @inheritdoc IPriceObserver
+    /// @dev A feed's history is whatever its operators have published. There is nothing to buy
+    ///      and nothing to ask for, so this is a no-op.
+    function extendHistory(address, uint16) external pure {}
+
+    /// @inheritdoc IPriceObserver
     function quoteToken(address) external pure returns (address) {
         return address(0);
     }
