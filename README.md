@@ -64,6 +64,7 @@ Stated up front.
 src/
   VarianceMarket.sol        singleton: registry, subscription, netting, settlement, ERC-6909
   RFQSettlement.sol         EIP-712 quotes: price discovery and entry on demand
+  RealizedVolatilityOracle  the settled quantity, readable by anyone, with its provenance
   libraries/VarianceMath    the calculation and the settlement identities
   observers/UniV3Observer   rebuilds a tick series from a Uniswap V3 buffer
   observers/ChainlinkObserver  price series from an aggregator's rounds (2.7x the gas)
