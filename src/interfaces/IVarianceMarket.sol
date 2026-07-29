@@ -151,6 +151,7 @@ interface IVarianceMarket {
     error NegativePrice(int256 value);
     error ExceedsDepthLimit(uint256 requested, uint256 limit);
     error CollateralNotQuoteToken(address collateral, address expected);
+    error InsufficientGasToSettle(uint256 needed, uint256 available);
 
     // =====================================================================
     // Functions

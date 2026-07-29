@@ -15,7 +15,10 @@ via_ir = false                  # off locally only: see ADR-0010. Every profile 
                                 # edit-test loop cares about.
 
 gas_reports = ["*"]
-fs_permissions = [{ access = "read", path = "./test/fixtures" }]
+fs_permissions = [
+    { access = "read", path = "./test/fixtures" },
+    { access = "read-write", path = "../ops" },
+]
 
 # ------------------------------------------------------------------
 # Fuzz. Fixed seed so a failure reproduces instead of being caught once and lost.

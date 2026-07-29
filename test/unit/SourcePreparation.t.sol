@@ -71,8 +71,8 @@ contract SourcePreparationTest is Test {
     function test_extendHistory_isANoopForFeeds() public {
         ChainlinkObserver link = new ChainlinkObserver();
         MockChainlinkFeed feed = new MockChainlinkFeed(8);
-        feed.push(2_500e8, block.timestamp);
+        feed.push(2500e8, block.timestamp);
 
-        link.extendHistory(address(feed), 1_000); // must not revert
+        link.extendHistory(address(feed), 1000); // must not revert
     }
 }

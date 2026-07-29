@@ -39,7 +39,7 @@ contract ValuationTest is BaseTest {
 
         // Half a step in: nothing complete, nothing reported.
         vm.warp(s.startTime + step / 2);
-        (, , uint16 steps) = market.accruedVariance(id);
+        (,, uint16 steps) = market.accruedVariance(id);
         assertEq(steps, 0, "a partial step should not count");
 
         // Five steps in: five reported.
@@ -65,7 +65,9 @@ contract ValuationTest is BaseTest {
         Variance settled = market.getSeries(id).realizedVariance;
 
         assertApproxEqRel(
-            Variance.unwrap(atExpiry), Variance.unwrap(settled), 0.02e18,
+            Variance.unwrap(atExpiry),
+            Variance.unwrap(settled),
+            0.02e18,
             "accrual at expiry should match what settlement computed"
         );
     }
@@ -112,7 +114,9 @@ contract ValuationTest is BaseTest {
         // Implied equal to the strike: the long leg is worth exactly what it deposited.
         uint256 atStrike = market.markToMarket(id, STRIKE, IVarianceMarket.Side.LONG);
         assertApproxEqRel(
-            atStrike, market.collateralPerUnit(id, IVarianceMarket.Side.LONG), 0.001e18,
+            atStrike,
+            market.collateralPerUnit(id, IVarianceMarket.Side.LONG),
+            0.001e18,
             "at implied == strike the long leg should mark at its deposit"
         );
     }
@@ -128,7 +132,8 @@ contract ValuationTest is BaseTest {
 
         uint256 highShort = market.markToMarket(id, Variance.wrap(0.08e18), IVarianceMarket.Side.SHORT);
         assertEq(
-            highLong + highShort, market.totalCollateralPerUnit(id),
+            highLong + highShort,
+            market.totalCollateralPerUnit(id),
             "the two legs must always mark to the whole pot"
         );
     }
@@ -202,7 +207,8 @@ contract ValuationTest is BaseTest {
         market.redeem(idA, IVarianceMarket.Side.LONG, 1e18, alice);
 
         assertEq(
-            market.payoutPerUnit(idA, IVarianceMarket.Side.LONG), explicitPayout,
+            market.payoutPerUnit(idA, IVarianceMarket.Side.LONG),
+            explicitPayout,
             "settling lazily gave a different number than settling explicitly"
         );
     }
