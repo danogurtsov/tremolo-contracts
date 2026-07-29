@@ -92,6 +92,24 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     ///      by whoever creates the series, which is whoever would benefit from setting it wrong.
     uint256 internal constant MAX_NOTIONAL_TO_DEPTH_BPS = 10_000;
 
+    /// @dev Gas that reading the source must be given, per grid point and fixed.
+    ///
+    ///      These exist because of how `eth_estimateGas` interacts with `try/catch`. The
+    ///      estimator searches for the cheapest gas at which the
+    ///      transaction *succeeds* — and falling into the catch and voiding the series is a
+    ///      success by that definition, while costing roughly half of what reading the series
+    ///      costs. Left alone, every wallet would hand `settle` exactly enough gas to guarantee
+    ///      the void it was supposed to prevent, and the winning side would lose its payout to
+    ///      a refund.
+    ///
+    ///      Found on a local fork before deployment. The Foundry fork tests never saw it: they
+    ///      call `settle` with effectively unlimited gas, so the cheap path was never taken.
+    ///
+    ///      Checking `gasleft()` up front removes the cheap path entirely — with too little gas
+    ///      the call reverts instead of voiding, so the estimator has to keep looking.
+    uint256 internal constant GAS_PER_SAMPLE = 45_000;
+    uint256 internal constant GAS_SETTLE_OVERHEAD = 300_000;
+
     /// @dev Positions are denominated in WAD, so a "unit" is 1e18. Pro-rata matching cannot
     ///      be exact over indivisible units, and the gap comes out of solvency. See the note
     ///      on `mintPositions`.
@@ -223,9 +241,12 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
 
         elapsedSeconds = uint32(stepsComplete) * step;
 
-        try IPriceObserver(s.observer).sampleSeries(
-            s.source, uint32(s.startTime) + elapsedSeconds, elapsedSeconds, stepsComplete
-        ) returns (int256[] memory series) {
+        try IPriceObserver(s.observer)
+            .sampleSeries(
+                s.source, uint32(s.startTime) + elapsedSeconds, elapsedSeconds, stepsComplete
+            ) returns (
+            int256[] memory series
+        ) {
             accrued = IPriceObserver(s.observer).seriesKind() == IPriceObserver.SeriesKind.TICKS
                 ? VarianceMath.fromTicks(series, elapsedSeconds)
                 : VarianceMath.fromPrices(_toUnsigned(series), elapsedSeconds);
@@ -266,13 +287,12 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         uint32 window = uint32(s.expiry - s.startTime);
         (Variance accrued, uint32 elapsed,) = accruedVariance(seriesId);
 
-        uint256 expected = (
-            Variance.unwrap(accrued) * elapsed + Variance.unwrap(impliedRemaining) * (window - elapsed)
-        ) / window;
+        uint256 expected =
+            (Variance.unwrap(accrued) * elapsed + Variance.unwrap(impliedRemaining) * (window - elapsed))
+                / window;
 
-        uint256 long = VarianceMath.longPayout(
-            Variance.wrap(expected), s.strike, s.capMultiple, s.notionalPerUnit
-        );
+        uint256 long =
+            VarianceMath.longPayout(Variance.wrap(expected), s.strike, s.capMultiple, s.notionalPerUnit);
         return side == Side.LONG ? long : totalCollateralPerUnit(seriesId) - long;
     }
 
@@ -678,12 +698,20 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         Series storage s = _series[seriesId];
         if (s.state != State.ACTIVE) revert WrongState(s.state);
         if (block.timestamp < s.expiry) revert TooEarly();
+        _requireGasToSettle(s.samples);
         return _settle(seriesId, s);
+    }
+
+    /// @dev Refuses to start rather than void for lack of gas. The 64/63 factor is EIP-150: a
+    ///      call receives 63/64 of what is available, so the caller needs proportionally more
+    ///      than the callee will use.
+    function _requireGasToSettle(uint16 samples) internal view {
+        uint256 needed = (uint256(samples) * GAS_PER_SAMPLE + GAS_SETTLE_OVERHEAD) * 64 / 63;
+        if (gasleft() < needed) revert InsufficientGasToSettle(needed, gasleft());
     }
 
     /// @dev The body, callable from `redeem` so that nobody has to be paid to run it.
     function _settle(uint256 seriesId, Series storage s) internal returns (State) {
-
         uint32 window = uint32(s.expiry - s.startTime);
 
         // Completeness: how much of the window is genuine recording rather than interpolation.
@@ -752,7 +780,10 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         // Following Squeeth, which accrues its funding on any interaction rather than on a
         // schedule. The public `settle` stays: an indexer or a losing side may still want the
         // number fixed at a particular moment.
-        if (s.state == State.ACTIVE && block.timestamp >= s.expiry) _settle(seriesId, s);
+        if (s.state == State.ACTIVE && block.timestamp >= s.expiry) {
+            _requireGasToSettle(s.samples);
+            _settle(seriesId, s);
+        }
 
         if (s.state != State.SETTLED && s.state != State.VOIDED) revert WrongState(s.state);
         if (units == 0) revert ZeroUnits();

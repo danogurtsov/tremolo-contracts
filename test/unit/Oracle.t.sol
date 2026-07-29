@@ -81,10 +81,10 @@ contract OracleTest is Test {
     /// @dev Each sample is a TWAP over its step, so averaging inside a step cancels movement
     ///      within it. Measured at roughly a third on live data.
     function test_read_coarserGridReportsLess() public view {
-        uint256 fine = oracle.read(IPriceObserver(address(observer)), address(pool), 6 hours, 24)
-            .volatilityWad;
-        uint256 coarse = oracle.read(IPriceObserver(address(observer)), address(pool), 6 hours, 3)
-            .volatilityWad;
+        uint256 fine =
+            oracle.read(IPriceObserver(address(observer)), address(pool), 6 hours, 24).volatilityWad;
+        uint256 coarse =
+            oracle.read(IPriceObserver(address(observer)), address(pool), 6 hours, 3).volatilityWad;
 
         assertLt(coarse, fine, "a coarser grid should report lower volatility");
     }

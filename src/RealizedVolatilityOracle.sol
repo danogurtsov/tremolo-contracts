@@ -98,12 +98,11 @@ contract RealizedVolatilityOracle {
     /// @notice The same source over several horizons: the term structure, in one call.
     /// @dev Windows are capped by whatever history the source retains; anything longer reverts
     ///      rather than silently returning a shorter measurement.
-    function termStructure(
-        IPriceObserver observer,
-        address source,
-        uint32[] calldata windows,
-        uint16 samples
-    ) external view returns (Reading[] memory readings) {
+    function termStructure(IPriceObserver observer, address source, uint32[] calldata windows, uint16 samples)
+        external
+        view
+        returns (Reading[] memory readings)
+    {
         readings = new Reading[](windows.length);
         for (uint256 i = 0; i < windows.length; ++i) {
             readings[i] = read(observer, source, windows[i], samples);
