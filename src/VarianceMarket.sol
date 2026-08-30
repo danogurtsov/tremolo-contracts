@@ -65,6 +65,12 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     ///      nobody can afford to trigger — leaving a series permanently unsettleable.
     uint16 internal constant MAX_SAMPLES = 256;
 
+    /// @dev Lower bound on a series' completeness floor. Below this the sparseness guard at
+    ///      settlement effectively stops protecting anything; at zero it is disabled outright.
+    ///      50% is conservative: a window that is more than half interpolated does not describe
+    ///      a market. The default (one genuine recording per grid point = BPS) sits well above.
+    uint16 internal constant MIN_COMPLETENESS_BPS = 5000;
+
     /// @dev How long after `startTime` a series may still be activated.
     ///
     ///      Without a deadline, a series nobody activated for a week would enter ACTIVE against
@@ -107,8 +113,9 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     ///      call `settle` with effectively unlimited gas, so the cheap path was never taken.
     ///
     ///      Checking `gasleft()` up front removes the cheap path entirely — with too little gas
-    ///      the call reverts instead of voiding, so the estimator has to keep looking.
-    uint256 internal constant GAS_PER_SAMPLE = 45_000;
+    ///      the call reverts instead of voiding, so the estimator has to keep looking. The
+    ///      per-read component is asked of the observer (`settleGasFloor`), since only the
+    ///      adapter knows its own cost model; this market-side overhead floors it.
     uint256 internal constant GAS_SETTLE_OVERHEAD = 300_000;
 
     /// @dev Positions are denominated in WAD, so a "unit" is 1e18. Pro-rata matching cannot
@@ -143,6 +150,17 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     ///      code path.
     address public guardian;
     bool public creationPaused;
+
+    /// @notice Contracts allowed to open a series on behalf of two named funded parties.
+    /// @dev `openImmediate` pulls collateral from arbitrary `longSide`/`shortSide` addresses
+    ///      using only their standing ERC-20 allowance to this market. That allowance is
+    ///      spending permission, not consent to a specific trade — the consent check (an
+    ///      EIP-712 signature) lives in the execution layer (`RFQSettlement`). So the raw
+    ///      entry point must be gated to execution layers the guardian trusts; otherwise
+    ///      anyone could force any approver into an attacker-parameterised, rigged series and
+    ///      drain their approved balance. Pluggability is preserved: the guardian can bless a
+    ///      new execution layer without touching the contract that holds the money.
+    mapping(address opener => bool authorized) public authorizedOpener;
 
     constructor(address guardian_) {
         // A zero guardian would make `setCreationPaused` permanently unreachable. The two-step
@@ -341,8 +359,13 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         }
         if (p.expiry <= p.startTime) revert ExpiryBeforeStart();
 
-        uint32 window = uint32(p.expiry - p.startTime);
-        if (window < MIN_WINDOW || window > MAX_WINDOW) revert InvalidWindow(window);
+        // Bound the duration on the full uint64 subtraction, BEFORE narrowing to uint32.
+        // Checking the truncated value would enforce the window bound on
+        // `(expiry - startTime) mod 2^32`, letting an expiry ~2^32 seconds out pass as a
+        // short window and lock collateral until a real expiry ~136 years away.
+        uint256 fullWindow = uint256(p.expiry) - p.startTime;
+        if (fullWindow < MIN_WINDOW || fullWindow > MAX_WINDOW) revert InvalidWindow(uint32(fullWindow));
+        uint32 window = uint32(fullWindow); // provably lossless: fullWindow <= MAX_WINDOW < 2^32
         if (p.samples < MIN_SAMPLES || p.samples > MAX_SAMPLES) revert InvalidSamples(p.samples);
         if (window / p.samples < MIN_GRID_STEP) revert GridStepTooSmall(window / p.samples);
 
@@ -353,7 +376,13 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
             revert InvalidCap(p.capMultiple);
         }
         if (p.notionalPerUnit == 0) revert ZeroNotional();
-        if (p.minCompletenessBps > BPS) revert InvalidCompleteness(p.minCompletenessBps);
+        // A floor as well as a ceiling. Zero would make the settlement sparseness test
+        // `real * BPS < samples * minCompletenessBps` unreachable, silently disabling the
+        // guard that refuses to settle a mostly-interpolated window — a value the creator
+        // (or an RFQ maker signing the quote) benefits from setting wrong.
+        if (p.minCompletenessBps < MIN_COMPLETENESS_BPS || p.minCompletenessBps > BPS) {
+            revert InvalidCompleteness(p.minCompletenessBps);
+        }
 
         // Both legs must be economically meaningful. With a tiny notional and a cap close to
         // one, integer rounding can drive a deposit to zero, which would let a side hold
@@ -406,6 +435,12 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         nonReentrant
         returns (uint256 seriesId)
     {
+        // Only a blessed execution layer may pull a third party's approved collateral. The
+        // sole exception is a caller opening entirely against itself (both legs its own funds),
+        // which is market-neutral and spends nobody else's allowance.
+        if (!authorizedOpener[msg.sender] && (longSide != msg.sender || shortSide != msg.sender)) {
+            revert NotAuthorizedOpener(msg.sender);
+        }
         if (creationPaused) revert CreationPaused();
         if (units < MIN_SUBSCRIPTION) revert ZeroUnits();
         if (longSide == address(0) || shortSide == address(0)) revert ZeroAddress();
@@ -695,19 +730,27 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
     ///      Paying out on a series reconstructed from a pool that stopped
     ///      trading would mean settling on an artefact of linear interpolation. Returning
     ///      deposits is the only outcome that cannot be gamed by killing a source.
-    function settle(uint256 seriesId) external returns (State) {
+    function settle(uint256 seriesId) external nonReentrant returns (State) {
         Series storage s = _series[seriesId];
         if (s.state != State.ACTIVE) revert WrongState(s.state);
         if (block.timestamp < s.expiry) revert TooEarly();
-        _requireGasToSettle(s.samples);
+        _requireGasToSettle(s);
         return _settle(seriesId, s);
     }
 
     /// @dev Refuses to start rather than void for lack of gas. The 64/63 factor is EIP-150: a
     ///      call receives 63/64 of what is available, so the caller needs proportionally more
     ///      than the callee will use.
-    function _requireGasToSettle(uint16 samples) internal view {
-        uint256 needed = (uint256(samples) * GAS_PER_SAMPLE + GAS_SETTLE_OVERHEAD) * 64 / 63;
+    ///
+    ///      The floor is asked of the observer, not assumed from one constant. A tick pool
+    ///      answers a whole grid in a single `observe()`, while a round-indexed feed searches
+    ///      per grid point — a UniV3-measured `GAS_PER_SAMPLE` would leave a Chainlink series
+    ///      settling on the cheap void-through-catch path. `GAS_SETTLE_OVERHEAD * 64/63` is kept
+    ///      as a market-side floor beneath any adapter estimate.
+    function _requireGasToSettle(Series storage s) internal view {
+        uint32 window = uint32(s.expiry - s.startTime);
+        uint256 readCost = IPriceObserver(s.observer).settleGasFloor(s.source, s.samples, window);
+        uint256 needed = (readCost + GAS_SETTLE_OVERHEAD) * 64 / 63;
         if (gasleft() < needed) revert InsufficientGasToSettle(needed, gasleft());
     }
 
@@ -727,21 +770,33 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
             return _void(seriesId, s, VoidReason.SOURCE_REVERTED);
         }
 
-        try IPriceObserver(s.observer).sampleSeries(s.source, uint32(s.expiry), window, s.samples) returns (
-            int256[] memory series
-        ) {
-            // The adapter declares its own scale. Tick series difference exactly; price series
-            // need a logarithm whose error enters the result squared, which is why tick
-            // sources are preferred.
-            s.realizedVariance = IPriceObserver(s.observer).seriesKind() == IPriceObserver.SeriesKind.TICKS
-                ? VarianceMath.fromTicks(series, window)
-                : VarianceMath.fromPrices(_toUnsigned(series), window);
+        // The whole reconstruction — the source read AND the variance computation — runs behind
+        // one try/catch. Moving the compute out of the catch would let an arithmetic revert
+        // (an out-of-range tick, a non-positive price into lnWad) bubble up and freeze the
+        // series in ACTIVE forever, which is strictly worse than the void-and-refund the design
+        // promises. `reconstruct` is external+view so any revert inside it is caught here.
+        try this.reconstruct(s.observer, s.source, uint32(s.expiry), window, s.samples) returns (Variance v) {
+            s.realizedVariance = v;
             s.state = State.SETTLED;
-            emit SeriesSettled(seriesId, s.realizedVariance, msg.sender);
+            emit SeriesSettled(seriesId, v, msg.sender);
             return State.SETTLED;
         } catch {
             return _void(seriesId, s, VoidReason.SOURCE_REVERTED);
         }
+    }
+
+    /// @notice Reads the source and computes realized variance in one external call.
+    /// @dev External so `_settle` can wrap the source read and the arithmetic in a single
+    ///      try/catch. View: it moves no state, so wrapping it cannot introduce reentrancy.
+    function reconstruct(address observer, address source, uint32 endTime, uint32 window, uint16 samples)
+        external
+        view
+        returns (Variance)
+    {
+        int256[] memory series = IPriceObserver(observer).sampleSeries(source, endTime, window, samples);
+        return IPriceObserver(observer).seriesKind() == IPriceObserver.SeriesKind.TICKS
+            ? VarianceMath.fromTicks(series, window)
+            : VarianceMath.fromPrices(_toUnsigned(series), window);
     }
 
     /// @dev Price series are non-negative by construction; the shared `int256[]` return type is
@@ -782,7 +837,7 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         // schedule. The public `settle` stays: an indexer or a losing side may still want the
         // number fixed at a particular moment.
         if (s.state == State.ACTIVE && block.timestamp >= s.expiry) {
-            _requireGasToSettle(s.samples);
+            _requireGasToSettle(s);
             _settle(seriesId, s);
         }
 
@@ -810,6 +865,16 @@ contract VarianceMarket is IVarianceMarket, ERC6909, ReentrancyGuard {
         if (msg.sender != guardian) revert NotGuardian();
         creationPaused = paused;
         emit CreationPauseSet(paused);
+    }
+
+    /// @notice Grants or revokes an execution layer's right to call `openImmediate`.
+    /// @dev The trusted layer (e.g. `RFQSettlement`) verifies each party consented to the
+    ///      exact terms before opening; the market cannot, so it delegates that to blessed
+    ///      openers only. Revocable, so a compromised layer can be cut off without a redeploy.
+    function setAuthorizedOpener(address opener, bool authorized) external {
+        if (msg.sender != guardian) revert NotGuardian();
+        authorizedOpener[opener] = authorized;
+        emit AuthorizedOpenerSet(opener, authorized);
     }
 
     /// @notice Nominates a new guardian. Takes effect only once the nominee accepts.

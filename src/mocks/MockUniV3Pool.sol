@@ -58,14 +58,18 @@ contract MockUniV3Pool is IUniswapV3PoolOracle {
         obs[0] = Observation(startTimestamp, 0, 0, true);
     }
 
-    /// @notice Records an observation, exactly as a swap would.
+    /// @notice Records an observation, exactly as a swap would — accumulating both the tick
+    ///         integral and the seconds-per-liquidity integral against the liquidity in force
+    ///         over the interval, so the stored history reflects PAST liquidity, not spot.
     function writeObservation(uint32 timestamp, int24 tick) public {
         Observation memory last = obs[index];
         uint32 delta = timestamp - last.blockTimestamp;
         int56 cumulative = last.tickCumulative + int56(currentTick) * int56(uint56(delta));
+        uint160 splCumulative = last.secondsPerLiquidityCumulativeX128
+            + (liquidity == 0 ? 0 : uint160((uint256(delta) << 128) / liquidity));
 
         index = uint16((uint256(index) + 1) % cardinality);
-        obs[index] = Observation(timestamp, cumulative, 0, true);
+        obs[index] = Observation(timestamp, cumulative, splCumulative, true);
         currentTick = tick;
     }
 
@@ -105,19 +109,25 @@ contract MockUniV3Pool is IUniswapV3PoolOracle {
         if (reverting) revert PoolReverted();
 
         tickCumulatives = new int56[](secondsAgos.length);
+        uint160[] memory spl = new uint160[](secondsAgos.length);
         for (uint256 i = 0; i < secondsAgos.length; ++i) {
-            tickCumulatives[i] = _observeSingle(uint32(block.timestamp) - secondsAgos[i]);
+            uint32 target = uint32(block.timestamp) - secondsAgos[i];
+            (tickCumulatives[i], spl[i]) = _observeSingle(target);
         }
-        return (tickCumulatives, new uint160[](secondsAgos.length));
+        return (tickCumulatives, spl);
     }
 
-    function _observeSingle(uint32 target) internal view returns (int56) {
+    function _observeSingle(uint32 target) internal view returns (int56, uint160) {
         Observation memory last = obs[index];
 
-        // At or after the newest observation: extrapolate forward at the current tick.
+        // At or after the newest observation: extrapolate forward at the current tick and
+        // current liquidity (mirrors the real pool — only this tail uses spot liquidity).
         if (target >= last.blockTimestamp) {
             uint32 delta = target - last.blockTimestamp;
-            return last.tickCumulative + int56(currentTick) * int56(uint56(delta));
+            int56 tick = last.tickCumulative + int56(currentTick) * int56(uint56(delta));
+            uint160 spl = last.secondsPerLiquidityCumulativeX128
+                + (liquidity == 0 ? 0 : uint160((uint256(delta) << 128) / liquidity));
+            return (tick, spl);
         }
 
         // Walk back through the ring to find the surrounding pair.
@@ -129,11 +139,14 @@ contract MockUniV3Pool is IUniswapV3PoolOracle {
                 uint16 nextSlot = uint16((uint256(slot) + 1) % cardinality);
                 Observation memory n = obs[nextSlot];
                 uint32 span = n.blockTimestamp - o.blockTimestamp;
-                if (span == 0) return o.tickCumulative;
+                if (span == 0) return (o.tickCumulative, o.secondsPerLiquidityCumulativeX128);
                 // Linear interpolation — the source of the downward variance bias.
+                uint56 into = uint56(target - o.blockTimestamp);
                 int56 diff = n.tickCumulative - o.tickCumulative;
-                return
-                    o.tickCumulative + diff * int56(uint56(target - o.blockTimestamp)) / int56(uint56(span));
+                int56 tick = o.tickCumulative + diff * int56(into) / int56(uint56(span));
+                uint160 sdiff = n.secondsPerLiquidityCumulativeX128 - o.secondsPerLiquidityCumulativeX128;
+                uint160 spl = o.secondsPerLiquidityCumulativeX128 + uint160((uint256(sdiff) * into) / span);
+                return (tick, spl);
             }
         }
         revert OldObservation();

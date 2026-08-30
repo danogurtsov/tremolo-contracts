@@ -49,6 +49,7 @@ contract ChainlinkObserver is IPriceObserver {
     error StaleFeed(uint256 updatedAt, uint256 nowTs);
     error NonPositivePrice(int256 answer);
     error InsufficientHistory(uint32 available, uint32 required);
+    error FeedDecimalsTooHigh(uint8 decimals);
 
     /// @inheritdoc IPriceObserver
     function seriesKind() external pure returns (SeriesKind) {
@@ -126,6 +127,13 @@ contract ChainlinkObserver is IPriceObserver {
         if (samples < MIN_SAMPLES || samples > MAX_SAMPLES) revert TooFewSamples(samples);
 
         IChainlinkAggregator feed = IChainlinkAggregator(source);
+
+        // A feed reporting more than 18 decimals underflows `10 ** (18 - decimals)` at
+        // settlement and reverts on every read, so the series could only ever void. Reject it
+        // at creation rather than let it be funded and stranded.
+        uint8 dec = feed.decimals();
+        if (dec > 18) revert FeedDecimalsTooHigh(dec);
+
         (,,, uint256 updatedAt,) = feed.latestRoundData();
         if (block.timestamp > updatedAt + MAX_STALENESS) revert StaleFeed(updatedAt, block.timestamp);
 
@@ -134,8 +142,14 @@ contract ChainlinkObserver is IPriceObserver {
     }
 
     /// @inheritdoc IPriceObserver
-    /// @dev One backward search per grid point. Prices are normalised to WAD from the feed's own
-    ///      decimals, so the market never has to know what a given feed reports in.
+    /// @dev ONE backward pass over the round history, not one per grid point. The previous
+    ///      restart-from-latest-per-point cost O(samples · rounds); for a dense feed that
+    ///      exceeded the market's settlement gas floor, so `eth_estimateGas` settled every
+    ///      Chainlink series on the cheap void path. Here the rounds spanning the window are
+    ///      collected once (O(rounds)), then each grid point is assigned by walking a monotone
+    ///      cursor (O(samples)). Grid points also span the window exactly (first at startTime,
+    ///      last at endTime), so realized variance is not systematically understated by an
+    ///      omitted final interval. Prices are normalised to WAD from the feed's own decimals.
     function sampleSeries(address source, uint32 endTime, uint32 windowSeconds, uint16 samples)
         external
         view
@@ -147,35 +161,52 @@ contract ChainlinkObserver is IPriceObserver {
 
         IChainlinkAggregator feed = IChainlinkAggregator(source);
         uint256 scale = 10 ** (18 - feed.decimals());
-        uint32 step = windowSeconds / samples;
         uint32 startTime = endTime - windowSeconds;
 
-        series = new int256[](samples);
+        // Collect rounds newest→oldest in one pass, until we cover startTime or exhaust the
+        // step budget. `ts`/`ans` are parallel, index 0 = latest.
         (uint80 latest,,,,) = feed.latestRoundData();
-
-        for (uint256 i = 0; i < samples; ++i) {
-            uint32 at = startTime + uint32(i * step);
-            int256 answer = _priceAt(feed, latest, at);
-            series[i] = answer * int256(scale);
-        }
-    }
-
-    /// @dev The price in force at `at`: the most recent round whose `updatedAt` is at or before
-    ///      it. Walks backwards from the latest round, because feeds are read near their head far
-    ///      more often than deep in their history, and a binary search over a range that may
-    ///      cross a phase boundary is not sound.
-    function _priceAt(IChainlinkAggregator feed, uint80 latest, uint32 at) internal view returns (int256) {
+        uint32[] memory ts = new uint32[](MAX_SEARCH_STEPS);
+        int256[] memory ans = new int256[](MAX_SEARCH_STEPS);
+        uint256 n;
         for (uint80 i = 0; i < MAX_SEARCH_STEPS && latest > i; ++i) {
             try feed.getRoundData(latest - i) returns (
                 uint80, int256 answer, uint256, uint256 updatedAt, uint80
             ) {
-                if (updatedAt == 0 || updatedAt > at) continue;
+                if (updatedAt == 0) break; // unset round
                 if (answer <= 0) revert NonPositivePrice(answer);
-                return answer;
+                ts[n] = uint32(updatedAt);
+                ans[n] = answer;
+                ++n;
+                if (updatedAt <= startTime) break; // window start covered
             } catch {
-                break;
+                break; // phase boundary: earlier rounds unreachable
             }
         }
-        revert NoRoundCovers(at);
+        if (n == 0) revert NoRoundCovers(startTime);
+
+        // Grid points span [startTime, endTime] exactly: at_i = startTime + i*window/(samples-1).
+        // The cursor into `ts` only moves toward newer rounds as `at` increases, so the whole
+        // assignment is a single linear walk.
+        series = new int256[](samples);
+        uint256 idx = n - 1; // start at the oldest collected round for the earliest point
+        uint256 denom = uint256(samples) - 1;
+        for (uint256 i = 0; i < samples; ++i) {
+            uint32 at = startTime + uint32((i * uint256(windowSeconds)) / denom);
+            // advance to the newest round whose timestamp is <= at
+            while (idx > 0 && ts[idx - 1] <= at) --idx;
+            if (ts[idx] > at) revert NoRoundCovers(at); // no round at or before this point
+            series[i] = ans[idx] * int256(scale);
+        }
+    }
+
+    /// @inheritdoc IPriceObserver
+    /// @dev Worst case is one backward pass of MAX_SEARCH_STEPS getRoundData reads here plus
+    ///      another in realObservations, then a per-sample assignment. Sized well above that so
+    ///      an honest settlement always passes and only a genuinely underfunded call reverts —
+    ///      far larger than the tick adapter's per-sample cost, which is exactly why the market
+    ///      asks the observer instead of assuming a single constant.
+    function settleGasFloor(address, uint16 samples, uint32) external pure returns (uint256) {
+        return (uint256(MAX_SEARCH_STEPS) * 2 + uint256(samples)) * 12_000;
     }
 }

@@ -69,6 +69,7 @@ contract SettlementForkTest is Test {
 
         observer = new UniV3Observer();
         market = new VarianceMarket(address(this));
+        market.setAuthorizedOpener(address(this), true);
 
         // All three survive the roll along with their storage. USDC is a real contract, so
         // without this its balances would be re-read from the destination block and the

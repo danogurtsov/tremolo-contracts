@@ -35,6 +35,7 @@ contract DepthLimitTest is Test {
         vm.warp(1_800_000_000);
         observer = new UniV3Observer();
         market = new VarianceMarket(address(this));
+        market.setAuthorizedOpener(address(this), true);
         usdc = new MockERC20("USD Coin", "USDC", 6);
         weth = new MockERC20("Wrapped Ether", "WETH", 18);
 

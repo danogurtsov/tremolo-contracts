@@ -40,6 +40,7 @@ contract DeployLocal is Script {
         ChainlinkObserver link = new ChainlinkObserver();
         VarianceMarket market = new VarianceMarket(me);
         RFQSettlement rfq = new RFQSettlement(market);
+        market.setAuthorizedOpener(address(rfq), true);
         RealizedVolatilityOracle oracle = new RealizedVolatilityOracle();
         LocalSwapper swapper = new LocalSwapper(POOL);
 

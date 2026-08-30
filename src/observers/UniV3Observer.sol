@@ -59,6 +59,25 @@ contract UniV3Observer is IPriceObserver {
     uint16 public constant MAX_SAMPLES = 256;
     uint16 public constant MIN_SAMPLES = 2;
 
+    /// @dev Window over which in-range liquidity is time-averaged for the depth cap. A single
+    ///      JIT liquidity mint lives one block (~2s on Base); against a 10-minute harmonic mean
+    ///      its weight is ~0.3%, so it cannot inflate the manipulation-cost denominator the way
+    ///      a spot `liquidity()` read let it. Short enough that any pool with history for the
+    ///      series window trivially covers it.
+    uint32 public constant DEPTH_TWAP_INTERVAL = 600;
+
+    /// @dev Hard ceiling on the observation ring scan in `realObservations`. The ring is
+    ///      attacker-growable (cardinality up to 65535 via `increaseObservationCardinalityNext`
+    ///      + per-block swaps), and an unbounded scan would let a losing party push settlement
+    ///      past the block gas limit to force a void. The count is only needed to clear the
+    ///      completeness floor, which tops out at `samples <= MAX_SAMPLES`, so scanning a small
+    ///      multiple of that is always enough to decide it.
+    uint16 public constant MAX_OBS_SCAN = 768;
+
+    /// @dev Measured per-sample settlement gas for `observe()` over the grid on the live Base
+    ///      pool; the settlement gas floor the market enforces is built from this.
+    uint256 public constant GAS_PER_SAMPLE = 45_000;
+
     /// @inheritdoc IPriceObserver
     function seriesKind() external pure returns (SeriesKind) {
         return SeriesKind.TICKS;
@@ -98,12 +117,38 @@ contract UniV3Observer is IPriceObserver {
     ///      this returns ~$254k for the target pool, while real swaps put a 1% move nearer
     ///      $161k. Same order, conservative direction.
     function depthQuote(address source) external view returns (uint256) {
-        (uint160 sqrtPriceX96,,,,,,) = IUniswapV3PoolOracle(source).slot0();
-        uint128 liquidity = IUniswapV3PoolOracle(source).liquidity();
-        if (liquidity == 0 || sqrtPriceX96 == 0) return 0;
+        IUniswapV3PoolOracle pool = IUniswapV3PoolOracle(source);
+        (uint160 sqrtPriceX96,,, uint16 cardinality,,,) = pool.slot0();
+        if (sqrtPriceX96 == 0) return 0;
+
+        // Time-average the in-range liquidity rather than reading spot. Spot `liquidity()`
+        // includes a position minted one block earlier and burned the next, so a flash-mint
+        // would inflate the depth cap — the protocol's central manipulation-cost defense — for
+        // a single transaction. The harmonic mean over DEPTH_TWAP_INTERVAL barely moves for a
+        // one-block position.
+        uint128 liq;
+        if (cardinality >= 2 && maxLookback(source) >= DEPTH_TWAP_INTERVAL) {
+            uint32[] memory ago = new uint32[](2);
+            ago[0] = DEPTH_TWAP_INTERVAL;
+            ago[1] = 0;
+            (, uint160[] memory spl) = pool.observe(ago);
+            uint160 delta = spl[1] - spl[0];
+            if (delta == 0) return 0;
+            // secondsPerLiquidityCumulative is Σ dt / L in X128; the harmonic-mean liquidity
+            // over the interval is interval * 2^128 / delta.
+            uint256 lHarmonic =
+                FixedPointMathLib.fullMulDiv(DEPTH_TWAP_INTERVAL, uint256(1) << 128, uint256(delta));
+            liq = lHarmonic > type(uint128).max ? type(uint128).max : uint128(lHarmonic);
+        } else {
+            // A pool without the buffer to look back the interval falls back to spot. It is
+            // young or thin; the cap is conservative either way, and validateSource already
+            // requires the buffer to span the (longer) series window at creation.
+            liq = pool.liquidity();
+        }
+        if (liq == 0) return 0;
 
         // 49876 / 1e7 == 0.0049876, kept as integers to avoid a fixed-point dependency here.
-        return FixedPointMathLib.fullMulDiv(uint256(liquidity) * 49_876, sqrtPriceX96, 1e7 << 96);
+        return FixedPointMathLib.fullMulDiv(uint256(liq) * 49_876, sqrtPriceX96, 1e7 << 96);
     }
 
     /// @inheritdoc IPriceObserver
@@ -114,7 +159,11 @@ contract UniV3Observer is IPriceObserver {
 
     /// @inheritdoc IPriceObserver
     /// @dev Walks the ring backwards from the newest entry and counts those inside the window.
-    ///      Bounded by `cardinality`, so cost is bounded by the pool's own buffer size.
+    ///      Bounded by MAX_OBS_SCAN, NOT by the pool's cardinality: the ring is attacker-growable
+    ///      and an unbounded scan would let a losing party inflate settlement gas past a block to
+    ///      force a void. The scan also stops early once the count clears any possible
+    ///      completeness floor (`samples <= MAX_SAMPLES <= MAX_OBS_SCAN`), so a genuinely dense
+    ///      window is cheap regardless of ring size.
     function realObservations(address source, uint32 endTime, uint32 windowSeconds)
         external
         view
@@ -124,13 +173,14 @@ contract UniV3Observer is IPriceObserver {
         (,, uint16 index, uint16 cardinality,,,) = pool.slot0();
         uint32 startTime = endTime - windowSeconds;
 
-        for (uint16 i = 0; i < cardinality; ++i) {
+        uint16 scan = cardinality < MAX_OBS_SCAN ? cardinality : MAX_OBS_SCAN;
+        for (uint16 i = 0; i < scan; ++i) {
             uint16 slot = uint16((uint256(index) + cardinality - i) % cardinality);
             (uint32 ts,,, bool initialized) = pool.observations(slot);
             if (!initialized) continue;
             if (ts > endTime) continue;
             if (ts < startTime) break; // walking backwards: everything older is out of range
-            ++count;
+            if (++count >= MAX_SAMPLES) break; // enough to clear any completeness floor
         }
     }
 
@@ -174,15 +224,22 @@ contract UniV3Observer is IPriceObserver {
         if (endTime > block.timestamp) revert FutureWindow();
         if (windowSeconds == 0 || windowSeconds > 365 days) revert WindowTooLong(windowSeconds);
 
+        uint32 nowTs = uint32(block.timestamp);
+        uint32 endAgo = nowTs - endTime;
+
+        // The oldest point actually requested is `endAgo + windowSeconds` ago (it reads back to
+        // startTime), not `windowSeconds` ago. Checking only against windowSeconds under-verified
+        // by `endAgo`, so a series settled even seconds late — the normal first eligible block —
+        // could pass this guard yet revert OLD inside observe() and force a void. Require the
+        // full read distance.
+        uint32 required = endAgo + windowSeconds;
         uint32 available = maxLookback(source);
-        if (available < windowSeconds) revert InsufficientLookback(available, windowSeconds);
+        if (available < required) revert InsufficientLookback(available, required);
 
         // `samples` average ticks need `samples + 1` cumulative readings.
         uint256 points = uint256(samples) + 1;
         uint32[] memory secondsAgos = new uint32[](points);
 
-        uint32 nowTs = uint32(block.timestamp);
-        uint32 endAgo = nowTs - endTime;
         // Integer step; any remainder is absorbed into the oldest interval so the window is
         // covered exactly rather than drifting short.
         uint32 step = windowSeconds / samples;
@@ -199,5 +256,14 @@ contract UniV3Observer is IPriceObserver {
             uint32 dt = i == 0 ? windowSeconds - (samples - 1) * step : step;
             series[i] = (int256(tickCumulatives[i + 1]) - int256(tickCumulatives[i])) / int256(uint256(dt));
         }
+    }
+
+    /// @inheritdoc IPriceObserver
+    /// @dev One `observe()` binary-searches the ring per grid point (`GAS_PER_SAMPLE`), plus the
+    ///      bounded completeness scan. Flat and cheap because a tick pool answers the whole grid
+    ///      in one call — the opposite of the round-indexed Chainlink adapter, which is why the
+    ///      market asks each observer rather than assuming one number.
+    function settleGasFloor(address, uint16 samples, uint32) external pure returns (uint256) {
+        return uint256(samples) * GAS_PER_SAMPLE + uint256(MAX_OBS_SCAN) * 3000;
     }
 }

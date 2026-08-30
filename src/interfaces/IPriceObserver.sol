@@ -115,4 +115,15 @@ interface IPriceObserver {
     /// @dev Called at creation. Cheaper to fail here than to discover the gap at settlement,
     ///      when the money is already committed.
     function validateSource(address source, uint32 windowSeconds, uint16 samples) external view;
+
+    /// @notice Worst-case gas the market must have available to complete a settlement read.
+    /// @dev The market cannot know each adapter's cost model — a tick pool answers a grid in
+    ///      one `observe()`, while a round-indexed feed searches per point — so it asks the
+    ///      adapter. The floor exists so `eth_estimateGas` cannot settle on the cheap
+    ///      void-through-catch path: too little gas must revert, not void. Each adapter sizes
+    ///      this to its own worst case for the given grid and history length.
+    function settleGasFloor(address source, uint16 samples, uint32 windowSeconds)
+        external
+        view
+        returns (uint256);
 }

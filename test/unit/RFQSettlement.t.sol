@@ -31,6 +31,7 @@ contract RFQSettlementTest is Test {
         observer = new UniV3Observer();
         market = new VarianceMarket(address(this));
         rfq = new RFQSettlement(market);
+        market.setAuthorizedOpener(address(rfq), true);
         pool = new MockUniV3Pool(200_000, 512, uint32(block.timestamp - 2 days));
 
         usdc.mint(maker, 1_000_000e6);

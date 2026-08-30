@@ -119,6 +119,7 @@ interface IVarianceMarket {
     event CreationPauseSet(bool paused);
     event GuardianTransferStarted(address indexed current, address indexed pending);
     event GuardianSet(address indexed guardian);
+    event AuthorizedOpenerSet(address indexed opener, bool authorized);
 
     // =====================================================================
     // Errors
@@ -152,6 +153,7 @@ interface IVarianceMarket {
     error ExceedsDepthLimit(uint256 requested, uint256 limit);
     error CollateralNotQuoteToken(address collateral, address expected);
     error InsufficientGasToSettle(uint256 needed, uint256 available);
+    error NotAuthorizedOpener(address caller);
 
     // =====================================================================
     // Functions

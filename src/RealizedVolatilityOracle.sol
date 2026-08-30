@@ -48,6 +48,7 @@ contract RealizedVolatilityOracle {
 
     error WindowTooShort(uint32 windowSeconds);
     error TooFewSamples(uint16 samples);
+    error NegativePrice(int256 value);
 
     uint32 internal constant MIN_WINDOW = 5 minutes;
     uint16 internal constant MIN_SAMPLES = 2;
@@ -109,10 +110,15 @@ contract RealizedVolatilityOracle {
         }
     }
 
+    /// @dev Reverts on a negative price rather than clamping to zero. Clamping matched neither
+    ///      the market's `_toUnsigned` (which reverts) nor reality — a zeroed price then reverts
+    ///      inside `divWad`/`lnWad` anyway — so the two same-named helpers now agree, and a
+    ///      genuinely negative reading fails loudly instead of being silently masked.
     function _toUnsigned(int256[] memory a) internal pure returns (uint256[] memory out) {
         out = new uint256[](a.length);
         for (uint256 i = 0; i < a.length; ++i) {
-            out[i] = a[i] < 0 ? 0 : uint256(a[i]);
+            if (a[i] < 0) revert NegativePrice(a[i]);
+            out[i] = uint256(a[i]);
         }
     }
 }
