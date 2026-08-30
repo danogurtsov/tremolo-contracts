@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/banner.png" alt="tremolo" width="100%" />
+</p>
+
 # Tremolo — realized volatility, computed on chain
 
 A variance swap whose settlement number is not quoted by anyone. The contract reconstructs the
