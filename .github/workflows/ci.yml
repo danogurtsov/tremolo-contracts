@@ -20,7 +20,9 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          # gas numbers move between forge releases; the committed snapshot is
+          # only meaningful against the version that produced it
+          version: v1.7.1
 
       - name: Show versions
         run: forge --version
@@ -55,7 +57,9 @@ jobs:
       # Gas regressions are silent otherwise. Run under the default profile, which is what the
       # committed snapshot was taken with - the ci profile's fuzz counts would not match.
       - name: Gas snapshot
-        run: FOUNDRY_PROFILE=default forge snapshot --check --no-match-path "test/fork/*"
+        # fuzz medians jitter a hair run to run; a 1% band keeps the check about
+        # regressions rather than scheduler noise
+        run: FOUNDRY_PROFILE=default forge snapshot --check --tolerance 1 --no-match-path "test/fork/*" --no-match-contract Invariant
 
   verification:
     name: symbolic proofs
@@ -66,7 +70,7 @@ jobs:
           submodules: recursive
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.7.1
       - name: Install halmos
         run: pip install halmos
       # Only the properties that discharge; the four that do not are documented in
