@@ -17,8 +17,8 @@ import {Variance} from "./types/Variance.sol";
 ///
 ///      Here a maker signs the terms — source, window, strike, cap, size, expiry of the quote —
 ///      and anyone may take the other side while the quote is live. The trade opens immediately
-///      with both legs funded in the same transaction. The strike is then a number someone was willing to stand behind.
-///
+///      with both legs funded in the same transaction. The strike is then a number someone was willing to
+/// stand behind.
 ///      It also unblocks the exit. `net` releases collateral to whoever holds both legs, but
 ///      only if someone will buy the leg being sold, and nobody quotes without a way to price
 ///      and hedge. A maker who can open new offsetting trades on demand can quote an exit.

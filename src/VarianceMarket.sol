@@ -14,8 +14,9 @@ import {Variance} from "./types/Variance.sol";
 /// @title VarianceMarket
 /// @notice Fully collateralised variance swaps settling on realized variance computed on chain.
 ///
-/// @dev One contract holds every series, following Morpho Blue and Uniswap V4: a singleton means one address to audit, one place where
-///      collateral lives, cheap series creation, and positions that are natively fungible per
+/// @dev One contract holds every series, following Morpho Blue and Uniswap V4: a singleton means one address
+/// to audit, one place where collateral lives, cheap series creation, and positions that are natively
+/// fungible per
 ///      series through ERC-6909 rather than a token contract per instrument.
 ///
 ///      The central design property, from which almost everything else follows:
