@@ -41,7 +41,10 @@ jobs:
           git diff --exit-code test/fixtures/
 
       - name: Tests, fuzz and invariants
-        run: forge test -vv
+        # Fork tests need a live Base RPC and flake on the public endpoint's rate
+        # limit in CI; they are run locally against a private node. Everything else
+        # (unit, fuzz, differential, invariants) runs here.
+        run: forge test -vv --no-match-path "test/fork/*"
 
       # Proves the deployment path still works against a live chain's state, which no unit
       # test covers: constructor ordering, guardian wiring, and whether the target pool can
