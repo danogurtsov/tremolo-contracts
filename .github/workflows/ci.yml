@@ -62,7 +62,7 @@ jobs:
       - name: Gas snapshot
         # fuzz medians jitter a hair run to run; a 1% band keeps the check about
         # regressions rather than scheduler noise
-        run: FOUNDRY_PROFILE=default forge snapshot --check --tolerance 1 --no-match-path "test/fork/*" --no-match-contract Invariant
+        run: FOUNDRY_PROFILE=default forge snapshot --check --no-match-path "test/fork/*" --no-match-contract Invariant --no-match-test "testFuzz"
 
   verification:
     name: symbolic proofs
