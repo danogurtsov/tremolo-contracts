@@ -1,0 +1,25 @@
+name: release
+
+# A tag vX.Y.Z publishes the integrator package (sources + spec, no mocks)
+# to GitHub Packages and attaches nothing else - artifacts belong to the
+# release notes, bytecode belongs to a deployment.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://npm.pkg.github.com
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
